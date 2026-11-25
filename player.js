@@ -236,12 +236,25 @@ export class Player {
       </div>
       <div class="pl-bar pl-transport">
         <button class="pl-play" type="button">▶ Play</button>
+        <button type="button" class="pl-btn open-mix" aria-haspopup="dialog">Mixer</button>
+        <button class="pl-btn open-setup" aria-haspopup="dialog">Settings</button>
         <button class="pl-btn pl-finish" type="button" disabled title="Play the ending after this chorus">Finish</button>
         <label>Output <meter class="pl-output" aria-label="Audio output level" min="-90" max="0" value="-90"></meter></label>
         <span class="pl-status" role="status"></span>
         <label class="lbl-tempo">Tempo <input type="number" class="in-tempo" min="40" max="320" value="${s.tempo}" inputmode="numeric">
           <input type="range" class="in-tempo-r" min="40" max="320" value="${s.tempo}" aria-label="Tempo"></label>
       </div>
+      <dialog class="mix-sheet" aria-labelledby="mix-title">
+        <div class="sheet-head"><h3 id="mix-title">Band mixer</h3><button type="button" class="pl-btn close-sheet" autofocus>Done</button></div>
+        <div class="sheet-content">
+          ${INST.map((name,i) => `<section class="channel"><h4>${name}</h4>
+            <select class="in-player" data-i="${i}" aria-label="${name} player">${PLAYERS[i].map((p,k)=>`<option value="${k}" ${s.players[i]===k?'selected':''}>${esc(p)}</option>`).join('')}</select>
+            <label>Level<input type="range" aria-label="${name} level" class="in-level" data-i="${i}" min="0" max="150" value="${s.levels[i]}"><output>${s.levels[i]}%</output></label></section>`).join('')}
+          <section class="channel"><h4>Melody</h4><select aria-label="Lead sound" class="in-leadsound"><option value="0">Horn</option><option value="1">Piano</option><option value="2">Guitar</option><option value="3">Vibes</option></select>
+          <label>Level<input aria-label="Melody level" type="range" class="in-level" data-i="lead" min="0" max="150" value="${s.lead}"><output>${s.lead}%</output></label></section>
+        </div>
+      </dialog>
+      <dialog class="setup-sheet" aria-labelledby="setup-title"><div class="sheet-head"><h3 id="setup-title">Song settings</h3><button class="pl-btn close-sheet" autofocus>Done</button></div><div class="sheet-content">
       <div class="pl-bar">
         <label>Key <select class="in-key">${keyOpts.join('')}</select></label>
         <label>Feel <select class="in-feel"><option value="0">Swing</option><option value="1">Ballad</option><option value="2">Bossa / straight</option></select></label>
@@ -252,24 +265,18 @@ export class Player {
         <label>Choruses <select class="in-chor">${[1, 2, 3, 4, 5, 6, 8].map(n => `<option value="${n}">${n}</option>`).join('')}<option value="0">Until Finish</option></select></label>
         <label title="Off: the melody is played in the first and last chorus, the choruses between are for solos"><input type="checkbox" class="in-every" ${s.leadEvery ? 'checked' : ''}> Melody every chorus</label>
       </div>
-      <details class="pl-more">
-        <summary>Band, mixer and arrangement</summary>
+
         <div class="pl-grid">
-          ${INST.map((n, i) => `<label>${n}<select class="in-player" data-i="${i}">${PLAYERS[i].map((p, k) => `<option value="${k}" ${s.players[i] === k ? 'selected' : ''}>${p}</option>`).join('')}</select></label>`).join('')}
-          <label>Lead sound<select class="in-leadsound"><option value="0">Horn (synth)</option><option value="1">Piano</option><option value="2">Guitar</option><option value="3">Vibes</option></select></label>
           <label>Lead octave<select class="in-leadoct"><option value="-1">Down</option><option value="0">As written</option><option value="1">Up</option></select></label>
           <label>Count-in<select class="in-intro"><option value="0">One bar count</option><option value="1">Last 4 bars</option><option value="2">Turnaround intro</option></select></label>
           <label>Ending<select class="in-ending"><option value="0">Final chord</option><option value="1">Tag (3 times)</option></select></label>
           <label>Chords for<select class="in-horn">${HORNS.map(([v, , t]) => `<option value="${v}">${t}</option>`).join('')}</select></label>
-          <label>Melody<input type="range" class="in-level" data-i="lead" min="0" max="150" value="${s.lead}"><output>${s.lead}%</output></label>
-          ${INST.map((n, i) => `<label>${n}<input type="range" class="in-level" data-i="${i}" min="0" max="150" value="${s.levels[i]}"><output>${s.levels[i]}%</output></label>`).join('')}
-        </div>
-      </details>
+        </div></div></dialog>
       <div class="pl-tabs">
         <span class="pl-seg seg-view"><button type="button" data-v="chart">Chart</button><button type="button" data-v="page">Original page</button></span>
         <button class="pl-btn btn-loop" type="button" title="Loop the bars you selected">Loop</button>
         <button class="pl-btn btn-clear" type="button">Clear selection</button>
-        <span class="pl-hint">Tap a bar to start there · to loop: tap the first bar, Loop, then the last bar (or Shift-click) · Space plays / stops</span>
+        <label class="follow-control"><input type="checkbox" class="in-follow" checked> Follow score</label><span class="pl-hint">Tap a bar to start there · to loop: tap the first bar, Loop, then the last bar (or Shift-click) · Space plays / stops</span>
       </div>
       <div class="pl-view"></div>`;
     const r = this.root;
@@ -279,6 +286,15 @@ export class Player {
     $('.pl-back', r).onclick = () => { this.close(); history.pushState(null, '', location.pathname + location.search); this.onclose?.(); };
     $('.pl-play', r).onclick = () => this.toggle();
     $('.pl-finish', r).onclick = () => this.finish();
+    for (const [trigger, selector] of [['.open-mix','.mix-sheet'], ['.open-setup','.setup-sheet']]) {
+      const sheet = $(selector, r);
+      $(trigger,r).onclick = () => sheet.showModal();
+      $('.close-sheet', sheet).onclick = () => sheet.close();
+      sheet.onclick = event => { if (event.target === sheet && !event.target.closest('.sheet-head,.sheet-content')) {
+        const box = sheet.getBoundingClientRect();
+        if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) sheet.close();
+      } };
+    }
     const setTempo = (v) => {
       v = Math.max(40, Math.min(320, Math.round(+v || 120))); s.tempo = v;
       $('.in-tempo', r).value = v; $('.in-tempo-r', r).value = v; post({ t: 'tempo', bpm: v });
@@ -459,8 +475,16 @@ export class Player {
     const bt = document.createElement('div'); bt.className = 'beat';
     bt.style.left = ((beat || 0) / beats * 100) + '%'; bt.style.width = (100 / beats) + '%';
     el.appendChild(bt);
-    const rect = el.getBoundingClientRect();
-    if (this.state.playing && (rect.top < stickyBottom(this.root) + 8 || rect.bottom > innerHeight - 20)) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    this.followBar(el);
+  }
+
+  followBar(bar) {
+    if (!this.state.playing || this.root.querySelector('dialog[open]') || !$('.in-follow', this.root).checked) return;
+    const view = $('.pl-view', this.root);
+    const target = bar.getBoundingClientRect(), bounds = view.getBoundingClientRect();
+    if (target.top < bounds.top || target.bottom > bounds.bottom) {
+      view.scrollTop += target.top - bounds.top - Math.max(0, (view.clientHeight - target.height) / 2);
+    }
   }
 
   // ------------------------------------------------------------------------------------------ the original page
@@ -511,12 +535,10 @@ export class Player {
     const h = document.createElement('div'); h.className = 'hl';
     place(h, bar.box, p.w, p.h);
     p.box.appendChild(h);
-    const r = h.getBoundingClientRect();
-    if (this.state.playing && (r.top < stickyBottom(this.root) + 8 || r.bottom > innerHeight - 20)) h.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    this.followBar(h);
   }
 }
 function chartPerLine(w) { w = w || innerWidth - 16; return w >= 700 ? 0 : w >= 340 ? 4 : 2; }
-function stickyBottom(root) { const t = root.querySelector('.pl-transport'); return t ? t.getBoundingClientRect().bottom : 0; }
 function place(el, box, w, h) {
   const [, x0, y0, x1, y1] = box, sp = (y1 - y0) / 4;
   const top = y0 - sp * 5.5, bot = y1 + sp * 2.2;
@@ -551,4 +573,5 @@ function guessFeel(song) {
   return 0;
 }
 export { normTitle };
+
 
