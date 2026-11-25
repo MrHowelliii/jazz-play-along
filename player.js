@@ -284,6 +284,7 @@ export class Player {
     post({ t: 'form', choruses: s.choruses, ending: s.ending, intro: s.intro, turn: 0 });
     post({ t: 'human', amount: s.human });
     post({ t: 'leadmask', mask: this.leadMask() });
+    post({ t: 'trade', bars: s.trade || 0 });
     this.sendLoop();
   }
   sendLevels() {
@@ -373,6 +374,8 @@ export class Player {
     // what is coming: the count, and a bar's notice before the melody leaves or returns
     let cue = '';
     if (d.state === 2) cue = String(d.beat + 1);
+    const tr = this.s.trade, trading = tr && d.kind === 0 && !this.loop && n !== 1 && !has(d.chorus);
+    if (trading && d.state === 3 && d.bar % tr === tr - 1 && d.bar < this.prep.form.length - 1) cue = Math.floor(d.bar / tr) & 1 ? 'Your turn' : 'Drums next';
     else if (d.kind === 0 && !this.loop && d.bar === this.prep.form.length - 1 && !(n && d.chorus >= n) && has(d.chorus) !== has(d.chorus + 1)) cue = has(d.chorus + 1) ? 'Melody next' : 'Solos next';
     // a loop gets a little faster each pass (the tune's own tempo comes back at Stop)
     if (this.loop && d.state === 3 && d.kind === 0) {
@@ -389,7 +392,7 @@ export class Player {
     const what = d.state === 2 ? 'Count-in' : d.kind === 5 ? 'Intro' : d.kind === 0 ? `Chorus ${d.chorus}${n ? ' of ' + n : ''}` : 'Ending';
     const solo = d.kind === 0 && !has(d.chorus);
     const where = this.loop && d.kind === 0 ? `Loop pass ${this.passes + 1} · ${this.s.tempo} BPM` : what;
-    this.status(`${where}${d.kind === 0 ? ' · bar ' + (this.prep.form[d.bar] + 1) : ''}${this.loop ? '' : solo ? ' · solos' : d.kind === 0 ? ' · head' : ''}`);
+    this.status(`${where}${d.kind === 0 ? ' · bar ' + (this.prep.form[d.bar] + 1) : ''}${this.loop ? '' : trading ? (Math.floor(d.bar / tr) & 1 ? ' · drums solo' : ' · your solo') : solo ? ' · solos' : d.kind === 0 ? ' · head' : ''}`);
   }
   cue(text, big) {
     const el = $('.pl-cue', this.root); if (!el) return;
@@ -486,13 +489,14 @@ export class Player {
       <div class="pl-bar">
         <button type="button" class="pl-btn pl-finish" disabled>Finish after chorus</button>
         <label>Key <select class="in-key">${keyOpts.join('')}</select></label>
-        <label>Feel <select class="in-feel"><option value="0">Swing</option><option value="1">Ballad</option><option value="2">Bossa / straight</option></select></label>
+        <label>Feel <select class="in-feel"><option value="0">Swing</option><option value="1">Ballad</option><option value="2">Bossa / straight</option><option value="3">Two-feel</option><option value="4">Two-feel, then four</option><option value="5">Shuffle</option><option value="6">Samba</option><option value="7">Even eighths</option></select></label>
         <span class="pl-break"></span>
         <span class="pl-field">You play</span>
         <span class="pl-seg seg-role">${ROLES.map(([v, t]) => `<button type="button" data-v="${v}" class="${s.role === v ? 'on' : ''}">${t}</button>`).join('')}</span>
         <label class="lbl-guide" title="The melody stays in, quietly, to guide you"><input type="checkbox" class="in-guide" ${s.guide ? 'checked' : ''}> Guide melody</label>
         <label>Choruses <select class="in-chor">${[1, 2, 3, 4, 5, 6, 8].map(n => `<option value="${n}">${n}</option>`).join('')}<option value="0">Until Finish</option></select></label>
         <label title="Off: the melody is played in the first and last chorus, the choruses between are for solos"><input type="checkbox" class="in-every" ${s.leadEvery ? 'checked' : ''}> Melody every chorus</label>
+        <label title="On the solo choruses (between the head in and out), you and the drummer take turns: you play over the band, then the drums solo"><span>Trade with drums</span> <select class="in-trade"><option value="0">Off</option><option value="4">Fours</option><option value="8">Eights</option></select></label>
       </div>
 
         <div class="pl-grid">
@@ -536,7 +540,7 @@ export class Player {
         <button type="button" data-panel="setup" aria-pressed="false">Setup</button>
       </nav>`;
     const r = this.root;
-    $('.in-feel', r).value = s.feel; $('.in-chor', r).value = s.choruses; $('.in-leadsound', r).value = s.leadSound;
+    $('.in-feel', r).value = s.feel; $('.in-trade', r).value = s.trade || 0; $('.in-chor', r).value = s.choruses; $('.in-leadsound', r).value = s.leadSound;
     $('.in-leadoct', r).value = s.leadOct; $('.in-intro', r).value = s.intro; $('.in-ending', r).value = s.ending; $('.in-horn', r).value = s.horn;
     $('.lbl-guide', r).style.display = s.role === 'lead' ? '' : 'none';
     this.panel = 'score';
@@ -612,6 +616,7 @@ export class Player {
     if (this.stage) { document.body.classList.add('stage'); $('.btn-stage', r).textContent = 'Exit stage'; $('.btn-stage', r).setAttribute('aria-pressed', 'true'); }
     $('.in-guide', r).onchange = (e) => { s.guide = e.target.checked; this.save(); this.sendLevels(); };
     $('.in-chor', r).onchange = (e) => { s.choruses = +e.target.value; this.save(); this.sendAll(); };
+    $('.in-trade', r).onchange = (e) => { s.trade = +e.target.value; this.save(); post({ t: 'trade', bars: s.trade }); };
     $('.in-every', r).onchange = (e) => { s.leadEvery = e.target.checked; this.save(); post({ t: 'leadmask', mask: this.leadMask() }); };
     r.querySelectorAll('.in-player').forEach(el => el.onchange = () => { s.players[+el.dataset.i] = +el.value; el.closest('.channel').querySelector('.player-note').textContent = STYLE_NOTES[+el.dataset.i][+el.value]; this.save(); post({ t: 'player', inst: +el.dataset.i, who: +el.value }); });
     $('.in-leadsound', r).onchange = (e) => { s.leadSound = +e.target.value; e.target.closest('.channel').querySelector('.player-note').textContent = LEAD_VOICES[s.leadSound][1]; this.save(); this.sendLevels(); };

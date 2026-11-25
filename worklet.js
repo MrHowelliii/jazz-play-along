@@ -51,6 +51,7 @@ class JazzBand extends AudioWorkletProcessor {
       case 'finish': X.jbw_finish(); break;
       case 'tempo': X.jbw_tempo(d.bpm); break;
       case 'feel': X.jbw_feel(d.feel); break;
+      case 'trade': X.jbw_trade?.(d.bars); break;
       case 'transpose': X.jbw_transpose(d.semis); break;
       case 'player': X.jbw_player(d.inst, d.who); break;
       case 'level': X.jbw_level(d.inst, d.value); break;

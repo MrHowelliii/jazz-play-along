@@ -1,6 +1,6 @@
---- a/web/jb_web.c	2026-11-25 12:33:42.518114888 +0000
-+++ b/web/jb_web.c	2026-11-25 12:33:42.520093014 +0000
-@@ -153,7 +153,7 @@
+--- a/web/jb_web.c
++++ b/web/jb_web.c
+@@ -160,7 +160,7 @@
      for (int b = 0; b <= JB_MAXBARS; b++) { while (k < lead_n && LN[k].bar < b) k++; lead_first[b] = k; }
  }
  EXPORT(jbw_lead_mask) void jbw_lead_mask(uint32_t m) { lead_mask = m; }
@@ -9,7 +9,7 @@
  
  /* A player's touch for the band. Each instrument sits in its own place around the beat (the ride and the bass on
   * top of it, the piano and the guitar a little behind), moves a few milliseconds from note to note, and never hits
-@@ -190,7 +190,8 @@
+@@ -197,7 +197,8 @@
  typedef struct {
      int on, wait, len, age, rel;                          /* samples: before start, gate, since start; releasing */
      float f, ph, ph2, env, lp, bp, vel, vib, glide;
@@ -19,7 +19,7 @@
  } lvoice_t;
  #define NLV 4
  static lvoice_t LV[NLV];
-@@ -208,10 +209,13 @@
+@@ -215,10 +216,13 @@
      for (int n = 70; n < 128; n++) { f *= r; FREQ[n] = (float)f; }
      f = 440.0; for (int n = 68; n >= 0; n--) { f /= r; FREQ[n] = (float)f; }
  }
@@ -35,7 +35,7 @@
          int32_t keep = e->lvl[li];
          e->lvl[li] = (lead_level * 40960) >> 15;
          int sn = e->strum_n; e->strum_n = 0;
-@@ -255,13 +259,21 @@
+@@ -262,13 +266,21 @@
      }
      static int rr;
      lvoice_t *v = &LV[0];                                  /* horn: monophonic, the newest note takes the voice (legato) */
@@ -58,7 +58,7 @@
      v->f = FREQ[note];
      v->on = 1;
  }
-@@ -294,7 +306,18 @@
+@@ -301,7 +313,18 @@
              if (v->wait > 0) { v->wait--; continue; }
              float target = v->rel ? 0.0f : 1.0f;
              float s;
@@ -78,8 +78,8 @@
                  if (v->age == 0) v->env = 1.0f;
                  v->env *= v->rel ? 0.99965f : 0.99996f;
                  float mod = fsin(v->ph2) * 1.2f * v->env;
-@@ -328,6 +351,23 @@
-     }
+@@ -450,6 +473,23 @@
+     return 1;
  }
  
 +/* A score tap cues the downbeat inside the current chorus. */
