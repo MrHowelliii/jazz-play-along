@@ -1,0 +1,38 @@
+name: Build and publish Jazz Play-Along
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: MrHowelliii/jazzband-op1r
+          ref: a7486c312836afd8c8764bf5490d99453e415bee
+          path: upstream
+      - uses: actions/checkout@v4
+        with:
+          repository: MrHowelliii/jazzbook
+          ref: 0c4be4ee80ec6bb0a024aa44340636e34cdca0aa
+          path: catalog
+      - run: bash build.sh
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
