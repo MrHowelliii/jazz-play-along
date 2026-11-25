@@ -4,6 +4,8 @@ root=$(pwd)
 site="$root/site"
 mkdir -p "$site/engine/packs"
 cp index.html player.js studio.css "$site/"
+cp sw.js manifest.webmanifest "$site/"
+cp -R icons "$site/"
 cp catalog/app/songform.js "$site/"
 cp -R catalog/{app,books,leads,vendor} "$site/"
 cp catalog/{books.json,songs.json,practice.html} "$site/"

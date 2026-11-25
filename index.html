@@ -4,6 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Jazz Play-Along</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#101820">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
   <style>
@@ -347,6 +354,8 @@
 <div id="lib-strip"><!-- Book chips injected here --></div>
 <p style="text-align:center"><a style="color:var(--gold-soft)" href="practice.html">Open practice room · Add a PDF</a></p>
 
+<section id="my-list" aria-label="My list" hidden></section>
+
 <div id="search-wrap">
   <div class="search-outer">
     <div class="search-inner">
@@ -617,6 +626,15 @@ async function init() {
     }
   } catch (err) { console.warn('lead sheets not loaded', err); }
   player = new Player(document.getElementById('player'), books);
+  player.onfavs = drawMyList;
+  // my list in order: when the band has played a tune's ending, the next one on the list starts
+  player.onended = () => {
+    const list = favs(), k = list.indexOf(player.song?.id);
+    if (!autoNext() || k < 0 || k + 1 >= list.length || !leadsById[list[k + 1]]) return;
+    openSong(list[k + 1]);
+    player.play();
+  };
+  drawMyList();
   player.onbrowse = () => {
     document.body.classList.add('browsing');
     document.getElementById('q').focus({preventScroll:true});
@@ -650,6 +668,25 @@ async function init() {
     </div>`;
 }
 
+// ── My list: starred tunes, in the order to practise or perform them ──────────
+function favs() { try { return JSON.parse(localStorage.getItem('playalong.favs') || '[]'); } catch { return []; } }
+function autoNext() { try { return localStorage.getItem('playalong.autoNext') === '1'; } catch { return false; } }
+function drawMyList() {
+  const el = document.getElementById('my-list'), list = favs().filter(id => leadsById[id]);
+  el.hidden = !list.length;
+  if (!list.length) return;
+  el.innerHTML = `<h2>My list</h2>` + list.map((id, i) => `<div class="ml-row">
+      <button type="button" class="ml-title" data-id="${esc(id)}">${i + 1}. ${esc(leadsById[id].title)}</button>
+      <button type="button" class="ml-small" data-up="${i}" aria-label="Move ${esc(leadsById[id].title)} up" ${i ? '' : 'disabled'}>↑</button>
+      <button type="button" class="ml-small" data-del="${i}" aria-label="Remove ${esc(leadsById[id].title)} from my list">✕</button>
+    </div>`).join('') + `<label><input type="checkbox" id="auto-next" ${autoNext() ? 'checked' : ''}> Play the list in order: after a tune's ending, start the next</label>`;
+  const put = (l) => { try { localStorage.setItem('playalong.favs', JSON.stringify(l)); } catch {} drawMyList(); player?.showFav?.(); };
+  el.querySelectorAll('.ml-title').forEach(b => b.onclick = () => openSong(b.dataset.id));
+  el.querySelectorAll('[data-up]').forEach(b => b.onclick = () => { const l = favs(), i = +b.dataset.up; [l[i - 1], l[i]] = [l[i], l[i - 1]]; put(l); });
+  el.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { const l = favs(); l.splice(+b.dataset.del, 1); put(l); });
+  document.getElementById('auto-next').onchange = (e) => { try { localStorage.setItem('playalong.autoNext', e.target.checked ? '1' : '0'); } catch {} };
+}
+
 function openSong(id) {
   const L = leadsById[id];
   if (!L || !player) return;
@@ -671,6 +708,8 @@ function route() {
   }
 }
 init().then(() => { if (player) route(); }).finally(() => document.body.classList.remove('starting'));
+// installable, and usable without a connection once it has been opened (sw.js)
+if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
 </body>
 </html>

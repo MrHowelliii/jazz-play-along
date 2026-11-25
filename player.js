@@ -27,8 +27,48 @@ const store = {
 };
 
 // ---------------------------------------------------------------------------------------------- the engine
-let ctx = null, node = null, gain = null, engineReady = null, packsOk = [0, 0, 0, 0];
-let onPos = () => {};
+let ctx = null, node = null, gain = null, room = null, engineReady = null, packsOk = [0, 0, 0, 0];
+let onPos = () => {}, onAudioState = () => {};
+
+// The engine and its instruments start downloading when the page opens, so the first Play does not wait for them.
+let assets = null;
+function preload() {
+  if (!assets) {
+    const get = (u) => fetch(u).then(r => { if (!r.ok) throw new Error(u + ' ' + r.status); return r.arrayBuffer(); });
+    assets = { wasm: get('engine/jazzband.wasm'), packs: PACKS.map(p => get(`engine/packs/${p}.jbp`).catch(() => null)) };
+    assets.wasm.catch(() => {});
+  }
+  return assets;
+}
+
+// A small room around the band: a short generated impulse response (early reflections, then a darkening tail).
+function makeRoom(ac) {
+  const input = ac.createGain(), output = ac.createGain(), wet = ac.createGain(), conv = ac.createConvolver();
+  const sr = ac.sampleRate, len = Math.round(sr * 1.1), ir = ac.createBuffer(2, len, sr);
+  let seed = 20261125;
+  const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 2147483648 - 1; };
+  for (let ch = 0; ch < 2; ch++) {
+    const d = ir.getChannelData(ch); let lp = 0, energy = 0;
+    const pre = Math.round(sr * (0.011 + 0.003 * ch));
+    for (let i = pre; i < len; i++) {
+      const t = (i - pre) / sr;
+      const k = Math.min(0.9, 0.25 + t * 1.6);                 // the tail loses its highs
+      lp += (1 - k) * (rnd() - lp);
+      d[i] = lp * Math.exp(-t * 6.2) * (t < 0.004 ? t / 0.004 : 1);
+    }
+    for (const [ms, g] of [[17, 0.5], [23, -0.4], [31, 0.3], [43, -0.22]]) d[Math.round(sr * (ms + 2 * ch) / 1000)] += g * 0.25;
+    for (let i = 0; i < len; i++) energy += d[i] * d[i];
+    const norm = 1 / Math.sqrt(energy);
+    for (let i = 0; i < len; i++) d[i] *= norm;
+  }
+  conv.normalize = false; conv.buffer = ir;
+  input.connect(output);
+  input.connect(conv).connect(wet).connect(output);
+  return { input, output, set(pct) {
+    const w = Math.max(0, Math.min(60, pct)) / 100 * 0.9;
+    wet.gain.value = w; output.gain.value = 1 / (1 + 0.3 * w);    // more room, a little less level: no clipping
+  } };
+}
 async function ensureEngine(status) {
   if (engineReady) return engineReady;
   engineReady = (async () => {
@@ -42,9 +82,12 @@ async function ensureEngine(status) {
     node = new AudioWorkletNode(ctx, 'jazzband', { numberOfInputs: 0, outputChannelCount: [2] });
     gain = ctx.createGain(); gain.gain.value = 0.9;
     node.connect(gain);
+    room = makeRoom(ctx);
+    room.set(store.get('settings', {}).room ?? 18);
+    gain.connect(room.input);
     const meter = ctx.createAnalyser();
     meter.fftSize = 2048;
-    gain.connect(meter).connect(ctx.destination);
+    room.output.connect(meter).connect(ctx.destination);
     const samples = new Float32Array(meter.fftSize);
     function updateMeter() {
       const out = document.querySelector('.pl-output');
@@ -58,6 +101,7 @@ async function ensureEngine(status) {
       }
     }
     ctx.addEventListener('statechange', updateMeter);
+    ctx.addEventListener('statechange', () => onAudioState(ctx?.state));
     setInterval(updateMeter, 160);
     const ready = new Promise(res => {
       node.port.onmessage = (e) => {
@@ -67,16 +111,17 @@ async function ensureEngine(status) {
         else if (d.t === 'packs') packsOk = d.ok;
       };
     });
-    const wasm = await (await fetch('engine/jazzband.wasm')).arrayBuffer();
+    const files = preload();
+    assets = null;                                          // the buffers move into the audio thread
+    const wasm = await files.wasm;
     node.port.postMessage({ t: 'wasm', bytes: wasm }, [wasm]);
     await ready;
     let got = 0;
-    await Promise.all(PACKS.map(async (p) => {
-      try {
-        const b = await (await fetch(`engine/packs/${p}.jbp`)).arrayBuffer();
-        node.port.postMessage({ t: 'pack', bytes: b }, [b]);
-        got++; status(`Loading the band… ${got}/${PACKS.length} instruments`);
-      } catch { /* that instrument plays its stand-in synth */ }
+    await Promise.all(files.packs.map(async (pack) => {
+      const b = await pack;
+      if (!b) return;                                       // that instrument failed to download
+      node.port.postMessage({ t: 'pack', bytes: b }, [b]);
+      got++; status(`Loading the band… ${got}/${PACKS.length} instruments`);
     }));
     // the engine checks each pack (a checksum, a few KB per audio block): wait for it, at most a few seconds
     await ctx.resume();
@@ -88,7 +133,7 @@ async function ensureEngine(status) {
     status('');
   })().catch(async error => {
     await ctx?.close().catch(() => {});
-    engineReady = null; ctx = null; node = null; packsOk = [0, 0, 0, 0];
+    engineReady = null; ctx = null; node = null; room = null; assets = null; packsOk = [0, 0, 0, 0];
     throw error;
   });
   return engineReady;
@@ -106,26 +151,81 @@ export class Player {
     this.s = Object.assign({
       tempo: null, key: 0, feel: 0, choruses: 3, intro: 0, ending: 0, role: 'none', guide: false, leadEvery: false,
       players: [0, 0, 0, 0], levels: [100, 100, 100, 100], lead: 100, leadSound: 0, leadOct: 0, horn: 'C', view: 'chart',
+      room: 18, latency: 0, passStep: 0,
     }, store.get('settings', {}));
     this.s.tempo = null; this.s.key = 0;
+    this.takes = [];
+    preload();
     onPos = (d) => this.position(d);
+    // a call, Siri or a route change stops the audio: hold the band at this beat, Resume carries on from it
+    onAudioState = (state) => {
+      if (state !== 'running' && this.state.playing && !this.paused && !this.starting) {
+        this.paused = true; post({ t: 'pause' }); this.updateTransport(); this.status('Paused: audio was interrupted');
+      }
+    };
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && this.state.playing && !this.paused) { ctx?.resume().catch(() => {}); this.wake(true); }
+    });
     let rt = 0;
     window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => this.resized(), 150); });
+    // keys (and Bluetooth page-turner pedals, which send arrows or Page Up / Page Down)
     document.addEventListener('keydown', (e) => {
-      if (!document.body.classList.contains('playing-view')) return;
-      if (e.code === 'Space' && !/INPUT|SELECT|TEXTAREA|BUTTON/.test(document.activeElement.tagName)) { e.preventDefault(); this.toggle(); }
+      const b = document.body.classList;
+      if (!b.contains('playing-view') || b.contains('browsing') || e.metaKey || e.ctrlKey || e.altKey) return;
+      const tag = document.activeElement?.tagName || '';
+      if (/INPUT|SELECT|TEXTAREA/.test(tag)) return;
+      const act = {
+        Space: () => { if (tag !== 'BUTTON') this.toggle(); else return false; },
+        ArrowRight: () => this.toggle(), PageDown: () => this.toggle(),
+        ArrowLeft: () => this.stop(), PageUp: () => this.stop(),
+        ArrowUp: () => this.setTempo(this.s.tempo + (e.shiftKey ? 1 : 5)), ArrowDown: () => this.setTempo(this.s.tempo - (e.shiftKey ? 1 : 5)),
+        KeyL: () => $('.btn-loop', this.root)?.click(), KeyS: () => this.setStage(!this.stage), KeyR: () => this.toggleRec(),
+        Escape: () => { if (this.stage) this.setStage(false); else return false; },
+      }[e.code];
+      if (act && act() !== false) e.preventDefault();
     });
+    document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && this.stage) this.setStage(false); });
   }
-  save() { const { tempo, key, ...rest } = this.s; store.set('settings', rest); }
+  save() { const { tempo, key, feel, ...rest } = this.s; store.set('settings', rest); }
+  // what you last used for this tune
+  saveTune() { if (this.song) store.set('tune.' + this.song.id, { tempo: this.trainBase || this.s.tempo, key: this.s.key, feel: this.s.feel }); }
+  setTempo(v, remember = true) {
+    const s = this.s, r = this.root;
+    v = Math.max(40, Math.min(320, Math.round(+v || 120))); s.tempo = v;
+    for (const [sel, prop] of [['.in-tempo', 'value'], ['.in-tempo-r', 'value'], ['.tempo-now', 'textContent']]) { const el = $(sel, r); if (el) el[prop] = v; }
+    post({ t: 'tempo', bpm: v });
+    if (remember) { this.trainBase = null; this.saveTune(); }
+  }
+  async wake(on) {
+    try {
+      if (on && !this.wakeLock && navigator.wakeLock) {
+        this.wakeLock = await navigator.wakeLock.request('screen');
+        this.wakeLock.addEventListener('release', () => { this.wakeLock = null; });
+      } else if (!on && this.wakeLock) { const w = this.wakeLock; this.wakeLock = null; await w.release(); }
+    } catch { /* the screen may sleep: not fatal */ }
+  }
+  setStage(on) {
+    this.stage = !!on;
+    document.body.classList.toggle('stage', this.stage);
+    const b = $('.btn-stage', this.root); if (b) { b.setAttribute('aria-pressed', String(this.stage)); b.textContent = this.stage ? 'Exit stage' : 'Stage'; }
+    try {
+      if (this.stage && !document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {});
+      else if (!this.stage && document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    } catch { /* phones without fullscreen: the stage layout still applies */ }
+    if (this.panel !== 'score') $('[data-panel=score]', this.root)?.click();
+    this.drawChart();
+    if (this.state.playing && this.lastSrc != null) this.highlight(this.lastSrc, this.lastBeat);
+  }
 
   open(song) {
     if (this.state.playing) this.stop();
     this.loadRequest = (this.loadRequest || 0) + 1;
     this.starting = false;
     this.song = song;
-    this.s.tempo = song.tempo || defaultTempo(song);
-    this.s.key = 0; this.startSrc = -1; this.loop = null;
-    this.s.feel = song.feel ?? guessFeel(song);
+    const mine = store.get('tune.' + song.id, {});
+    this.s.tempo = mine.tempo || song.tempo || defaultTempo(song);
+    this.s.key = mine.key || 0; this.startSrc = -1; this.loop = null; this.sel = null; this.picking = false; this.trainBase = null;
+    this.s.feel = mine.feel ?? song.feel ?? guessFeel(song);
     document.body.classList.add('playing-view');        // visible first: the chart lays out by its width
     this.render();
     this.reprep();
@@ -184,7 +284,9 @@ export class Player {
       return;
     }
     this.paused = !this.paused;
+    if (!this.paused) await ctx?.resume().catch(() => {});
     post({ t: this.paused ? 'pause' : 'resume' });
+    this.wake(!this.paused);
     this.updateTransport();
   }
   async play() {
@@ -208,9 +310,16 @@ export class Player {
     const from = this.loop ? this.prep.form.indexOf(this.loop[0]) : this.startSrc >= 0 ? this.prep.form.indexOf(this.startSrc) : -1;
     post({ t: 'play', from });
     this.state.playing = true;
+    this.passes = 0; this.lastBarIdx = null; this.lastBeatIdx = 0;
+    this.wake(true);
     this.updateTransport();
   }
-  stop() { this.paused = false; post({ t: 'stop' }); this.state.playing = false; this.state.bar = -1; this.updateTransport(); this.highlight(-1); }
+  stop() {
+    this.paused = false; post({ t: 'stop' }); this.state.playing = false; this.state.bar = -1;
+    if (this.trainBase) this.setTempo(this.trainBase, false);
+    this.trainBase = null;
+    this.wake(false); this.cue(''); this.updateTransport(); this.highlight(-1);
+  }
   finish() { post({ t: 'finish' }); }
 
   position(d) {
@@ -218,14 +327,80 @@ export class Player {
     this.state = { playing: d.state !== 0, bar: d.bar, beat: d.beat, chorus: d.chorus, kind: d.kind, state: d.state };
     if (!this.state.playing) this.paused = false;
     if (was !== this.state.playing) this.updateTransport();
-    if (!this.state.playing) { this.highlight(-1); this.status(''); return; }
+    if (!this.state.playing) {
+      this.highlight(-1); this.status(''); this.cue(''); this.wake(false);
+      if (this.trainBase) { this.setTempo(this.trainBase, false); this.trainBase = null; }
+      if (was) this.onended?.();                         // the band played its ending (Stop never gets here)
+      return;
+    }
     const src = d.state === 2 ? (this.prep.pickup ? 'pickup' : -1) : d.kind === 0 ? this.prep.form[d.bar] : -2;
-    const delay = Math.max(0, ((ctx.outputLatency || 0) + (ctx.baseLatency || 0)) * 1000);
-    setTimeout(() => this.highlight(src, d.beat), delay);
-    const n = this.s.choruses;
+    const n = this.s.choruses, mask = this.leadMask(), has = (c) => !!((mask >>> (Math.min(32, c) - 1)) & 1);
+    // what is coming: the count, and a bar's notice before the melody leaves or returns
+    let cue = '';
+    if (d.state === 2) cue = String(d.beat + 1);
+    else if (d.kind === 0 && !this.loop && d.bar === this.prep.form.length - 1 && !(n && d.chorus >= n) && has(d.chorus) !== has(d.chorus + 1)) cue = has(d.chorus + 1) ? 'Melody next' : 'Solos next';
+    // a loop gets a little faster each pass (the tune's own tempo comes back at Stop)
+    if (this.loop && d.state === 3 && d.kind === 0) {
+      const wrapped = this.lastBarIdx != null && (d.bar < this.lastBarIdx || (d.bar === this.lastBarIdx && d.beat < this.lastBeatIdx));
+      this.lastBarIdx = d.bar; this.lastBeatIdx = d.beat;
+      if (wrapped) {
+        this.passes++;
+        if (this.s.passStep > 0 && this.s.tempo < 320) { this.trainBase = this.trainBase || this.s.tempo; this.setTempo(this.s.tempo + this.s.passStep, false); }
+      }
+    }
+    const delay = Math.max(0, ((ctx.outputLatency || 0) + (ctx.baseLatency || 0)) * 1000 + (this.s.latency || 0));
+    setTimeout(() => { if (this.state.playing) { this.highlight(src, d.beat); this.cue(cue, d.state === 2); } }, delay);
     const what = d.state === 2 ? 'Count-in' : d.kind === 5 ? 'Intro' : d.kind === 0 ? `Chorus ${d.chorus}${n ? ' of ' + n : ''}` : 'Ending';
-    const solo = d.kind === 0 && !((this.leadMask() >>> (Math.min(32, d.chorus) - 1)) & 1);
-    this.status(`${what}${d.kind === 0 ? ' · bar ' + (this.prep.form[d.bar] + 1) : ''}${solo ? ' · solos' : d.kind === 0 ? ' · head' : ''}`);
+    const solo = d.kind === 0 && !has(d.chorus);
+    const where = this.loop && d.kind === 0 ? `Loop pass ${this.passes + 1} · ${this.s.tempo} BPM` : what;
+    this.status(`${where}${d.kind === 0 ? ' · bar ' + (this.prep.form[d.bar] + 1) : ''}${this.loop ? '' : solo ? ' · solos' : d.kind === 0 ? ' · head' : ''}`);
+  }
+  cue(text, big) {
+    const el = $('.pl-cue', this.root); if (!el) return;
+    if (el.textContent !== text) el.textContent = text;
+    el.hidden = !text; el.classList.toggle('count', !!big);
+  }
+
+  // ------------------------------------------------------------------------------------------ recording a take
+  async toggleRec() {
+    if (this.rec) { this.rec.stop(); return; }
+    try { await ensureEngine((m) => this.status(m)); await ctx.resume(); }
+    catch (err) { this.status('Audio could not start. ' + (err.message || err)); return; }
+    if (!window.MediaRecorder) { this.status('This browser cannot record.'); return; }
+    const dest = ctx.createMediaStreamDestination();
+    // the band reaches the recorder straight away, your playing only after it left the speaker and came back through
+    // the microphone: hold the band back by that much so the take lines up
+    const hold = ctx.createDelay(1);
+    hold.delayTime.value = Math.min(1, (ctx.outputLatency || 0) + (ctx.baseLatency || 0) + (this.s.latency || 0) / 1000);
+    room.output.connect(hold).connect(dest);
+    let mic = null, micNode = null;
+    try {
+      mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+      micNode = ctx.createMediaStreamSource(mic); micNode.connect(dest);
+    } catch { this.status('No microphone: recording the band only'); }
+    const chunks = [], rec = new MediaRecorder(dest.stream), song = this.song;
+    rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      this.rec = null;
+      room?.output.disconnect(hold); micNode?.disconnect(); mic?.getTracks().forEach(t => t.stop());
+      const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
+      const ext = /mp4|aac/.test(blob.type) ? 'm4a' : /ogg/.test(blob.type) ? 'ogg' : 'webm';
+      this.takes.unshift({ url: URL.createObjectURL(blob), name: `${song.title} take ${this.takes.length + 1}.${ext}`, title: song.title, at: new Date() });
+      this.drawTakes(); this.updateRec();
+      this.status('Take saved: open Setup to listen');
+    };
+    this.rec = rec; rec.start(); this.updateRec();
+    if (!this.state.playing && !this.starting) this.play();
+  }
+  updateRec() {
+    const b = $('.btn-rec', this.root); if (!b) return;
+    b.textContent = this.rec ? '■ Save take' : '● Rec'; b.setAttribute('aria-pressed', String(!!this.rec));
+  }
+  drawTakes() {
+    const el = $('.takes', this.root); if (!el) return;
+    el.innerHTML = this.takes.length ? this.takes.map(t => `<div class="take"><span>${esc(t.title)} · ${t.at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+      <audio controls preload="metadata" src="${t.url}"></audio><a download="${esc(t.name)}" href="${t.url}">Save file</a></div>`).join('')
+      : '<p class="takes-empty">No takes yet. Press ● Rec, play along, then press it again: your microphone and the band are recorded together. Takes stay until you close the page; use Save file to keep one.</p>';
   }
   status(m) { const el = $('.pl-status', this.root); if (el) el.textContent = m; }
   updateTransport() {
@@ -248,7 +423,8 @@ export class Player {
     this.root.innerHTML = `
       <div class="song-head">
         <div><h2>${esc(song.title)}</h2><p>${esc(song.composer || book.title)} · ${song.time[0]}/${song.time[1]} · ${song.bars.length} bars</p></div>
-        <button class="pl-back" type="button">Songs</button>
+        <span class="head-buttons"><button class="pl-fav" type="button" aria-pressed="false" aria-label="Add to my list" title="Add to my list">☆</button>
+        <button class="pl-back" type="button">Songs</button></span>
       </div>
       <div class="pl-transport">
         <span class="pl-status"></span>
@@ -256,6 +432,8 @@ export class Player {
       </div>
       <section class="mix-sheet panel" aria-label="Band mixer" hidden>
         <h3>Band mixer</h3>
+        <section class="channel room-channel"><h4>Room</h4><span class="room-note">Reverb around the band</span>
+          <label class="fader"><input type="range" aria-label="Room level" class="in-room" min="0" max="60" value="${s.room}"><output>${s.room}%</output></label></section>
         ${[...INST, 'Melody'].map((name,i) => {
           const lead = i === INST.length;
           const choices = lead ? ['Horn', 'Piano', 'Guitar', 'Vibes'] : PLAYERS[i];
@@ -289,14 +467,27 @@ export class Player {
           <label>Count-in<select class="in-intro"><option value="0">One bar count</option><option value="1">Last 4 bars</option><option value="2">Turnaround intro</option></select></label>
           <label>Ending<select class="in-ending"><option value="0">Final chord</option><option value="1">Tag (3 times)</option></select></label>
           <label>Chords for<select class="in-horn">${HORNS.map(([v, , t]) => `<option value="${v}">${t}</option>`).join('')}</select></label>
-        </div></section>
-      <section class="score-panel panel">${song.problems?.length ? '<small>Some measures may be misread. Check the original page.</small>' : ''}<div class="pl-tabs">
+          <label title="Each time a loop comes round it gets a little faster. Stop brings the tempo back.">Loop speed-up<select class="in-pass"><option value="0">Same tempo each pass</option><option value="2">+2 BPM each pass</option><option value="4">+4 BPM each pass</option><option value="8">+8 BPM each pass</option></select></label>
+          <label title="Bluetooth speakers and headphones play late. Raise this until the moving bar matches what you hear.">Speaker delay (ms)<input type="number" class="in-latency" min="0" max="500" step="10" value="${s.latency}" inputmode="numeric"></label>
+        </div>
+        <h3>Your takes</h3><div class="takes"></div>
+        <h3>Keys and pedals</h3>
+        <p class="keys-help">Space, → or Page Down: play / pause · ← or Page Up: stop · ↑ ↓: tempo (Shift: by 1) · L: loop · S: stage view · R: record. A Bluetooth page-turner pedal works as play / pause and stop.</p>
+        </section>
+      <section class="score-panel panel">${song.problems?.length ? '<small>Some measures may be misread. Check the original page.</small>' : ''}
+      <div class="quick" aria-label="Practice controls">
+        <label>You play <select class="in-role-q" aria-label="You play">${ROLES.map(([v, t]) => `<option value="${v}" ${s.role === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+        <span class="tempo-step"><button type="button" class="tempo-down" aria-label="Slower">−</button><output class="tempo-now" aria-label="Tempo">${s.tempo}</output><button type="button" class="tempo-up" aria-label="Faster">+</button></span>
+        <button type="button" class="btn-rec" aria-pressed="false" title="Record yourself with the band">● Rec</button>
+        <button type="button" class="btn-stage" aria-pressed="false" title="Large chart for a music stand">Stage</button>
+      </div>
+      <div class="pl-tabs">
         <span class="pl-seg seg-view"><button type="button" data-v="chart">Chart</button><button type="button" data-v="page">Original page</button></span>
         <button class="pl-btn btn-loop" type="button" title="Loop the bars you selected">Loop</button>
         <button class="pl-btn btn-clear" type="button">Clear selection</button>
         <label class="follow-control"><input type="checkbox" class="in-follow" checked> Follow score</label><span class="pl-hint">Tap a bar to start there · to loop: tap the first bar, Loop, then the last bar (or Shift-click) · Space plays / stops</span>
       </div>
-      <div class="pl-view"></div></section>
+      <div class="pl-stagewrap"><div class="pl-view"></div><div class="pl-cue" hidden aria-live="polite"></div></div></section>
       <nav class="dock" aria-label="Playback controls">
         <button class="pl-play" type="button">▶ Play</button>
         <button type="button" class="pl-stop" disabled>Stop</button>
@@ -328,22 +519,42 @@ export class Player {
       select.selectedIndex = (select.selectedIndex + Number(button.dataset.step) + select.length) % select.length;
       select.dispatchEvent(new Event('change'));
     });
-    const setTempo = (v) => {
-      v = Math.max(40, Math.min(320, Math.round(+v || 120))); s.tempo = v;
-      $('.in-tempo', r).value = v; $('.in-tempo-r', r).value = v; post({ t: 'tempo', bpm: v });
-    };
+    const setTempo = (v) => this.setTempo(v);
     $('.in-tempo', r).onchange = (e) => setTempo(e.target.value);
     $('.in-tempo-r', r).oninput = (e) => setTempo(e.target.value);
     $('.in-tempo-r', r).onchange = () => { if (!this.state.playing) this.reprep(); };
-    $('.in-key', r).onchange = (e) => { s.key = +e.target.value; post({ t: 'transpose', semis: s.key }); this.drawChart(); };
-    $('.in-feel', r).onchange = (e) => { s.feel = +e.target.value; this.save(); this.reprep(); };
-    $('.seg-role', r).onclick = (e) => {
-      const b = e.target.closest('button'); if (!b) return;
-      s.role = b.dataset.v; this.save();
-      r.querySelectorAll('.seg-role button').forEach(x => x.classList.toggle('on', x === b));
+    $('.tempo-down', r).onclick = () => { setTempo(s.tempo - 5); if (!this.state.playing) this.reprep(); };
+    $('.tempo-up', r).onclick = () => { setTempo(s.tempo + 5); if (!this.state.playing) this.reprep(); };
+    $('.in-key', r).onchange = (e) => { s.key = +e.target.value; post({ t: 'transpose', semis: s.key }); this.saveTune(); this.drawChart(); };
+    $('.in-feel', r).onchange = (e) => { s.feel = +e.target.value; this.saveTune(); this.reprep(); };
+    const setRole = (v) => {
+      s.role = v; this.save();
+      r.querySelectorAll('.seg-role button').forEach(x => x.classList.toggle('on', x.dataset.v === v));
+      $('.in-role-q', r).value = v;
       $('.lbl-guide', r).style.display = s.role === 'lead' ? '' : 'none';
       this.sendLevels();
     };
+    $('.seg-role', r).onclick = (e) => { const b = e.target.closest('button'); if (b) setRole(b.dataset.v); };
+    $('.in-role-q', r).onchange = (e) => setRole(e.target.value);
+    $('.btn-rec', r).onclick = () => this.toggleRec();
+    $('.btn-stage', r).onclick = () => this.setStage(!this.stage);
+    $('.in-pass', r).value = s.passStep;
+    $('.in-pass', r).onchange = (e) => { s.passStep = +e.target.value; this.save(); };
+    $('.in-latency', r).onchange = (e) => { s.latency = Math.max(0, Math.min(500, Math.round(+e.target.value || 0))); e.target.value = s.latency; this.save(); };
+    $('.in-room', r).oninput = (e) => { s.room = +e.target.value; e.target.nextElementSibling.textContent = s.room + '%'; room?.set(s.room); this.save(); };
+    const fav = $('.pl-fav', r), showFav = () => {
+      const on = store.get('favs', []).includes(song.id);
+      fav.textContent = on ? '★' : '☆'; fav.setAttribute('aria-pressed', String(on));
+      fav.setAttribute('aria-label', on ? 'Remove from my list' : 'Add to my list'); fav.title = fav.getAttribute('aria-label');
+    };
+    fav.onclick = () => {
+      const list = store.get('favs', []), k = list.indexOf(song.id);
+      if (k >= 0) list.splice(k, 1); else list.push(song.id);
+      store.set('favs', list); showFav(); this.onfavs?.();
+    };
+    showFav(); this.showFav = showFav;
+    this.drawTakes(); this.updateRec();
+    if (this.stage) { document.body.classList.add('stage'); $('.btn-stage', r).textContent = 'Exit stage'; $('.btn-stage', r).setAttribute('aria-pressed', 'true'); }
     $('.in-guide', r).onchange = (e) => { s.guide = e.target.checked; this.save(); this.sendLevels(); };
     $('.in-chor', r).onchange = (e) => { s.choruses = +e.target.value; this.save(); this.sendAll(); };
     $('.in-every', r).onchange = (e) => { s.leadEvery = e.target.checked; this.save(); post({ t: 'leadmask', mask: this.leadMask() }); };
@@ -412,7 +623,7 @@ export class Player {
     // rows: the lines of the printed page when there is room; else 4 (or 2) bars a line, a new line at each section
     const rows = [];
     const bodyStart = song.pickup ? 1 : 0;
-    const per = chartPerLine(view.clientWidth);
+    const per = this.stage ? (view.clientWidth >= 560 ? 4 : 2) : chartPerLine(view.clientWidth);
     this.chartMode = per;
     if (per) {
       let cur = [];
@@ -455,11 +666,14 @@ export class Player {
     view.querySelectorAll('.bar').forEach(bar => {
       const spans = [...bar.querySelectorAll('.chords span')];
       spans.forEach(sp => { sp.style.fontSize = ''; });
+      // one size for every chord in the bar: the size at which the tightest of them fits
+      let scale = 1;
       spans.forEach((sp, k) => {
         const end = k + 1 < spans.length ? spans[k + 1].offsetLeft : bar.clientWidth;
         const room = end - sp.offsetLeft - 3, need = sp.scrollWidth;
-        if (need > room && room > 0) sp.style.fontSize = Math.max(0.5, room / need).toFixed(3) + 'em';
+        if (need > room && room > 0) scale = Math.min(scale, room / need);
       });
+      if (scale < 1) spans.forEach(sp => { sp.style.fontSize = Math.max(0.42, scale).toFixed(3) + 'em'; });
     });
   }
   resized() {
@@ -467,7 +681,7 @@ export class Player {
     const view = $('.pl-view', this.root); if (!view) return;
     if (this.s.view === 'page') {
       if (Math.abs((this.pageWidth || 0) - view.clientWidth) > 40) this.drawChart();
-    } else if (chartPerLine(view.clientWidth) !== this.chartMode) { this.drawChart(); if (this.state.playing && this.lastSrc != null) this.highlight(this.lastSrc, this.lastBeat); }
+    } else if ((this.stage ? (view.clientWidth >= 560 ? 4 : 2) : chartPerLine(view.clientWidth)) !== this.chartMode) { this.drawChart(); if (this.state.playing && this.lastSrc != null) this.highlight(this.lastSrc, this.lastBeat); }
     else this.fitChords();
   }
   barClick(src, shift) {
@@ -516,7 +730,10 @@ export class Player {
     if (!this.state.playing || this.panel !== 'score' || !$('.in-follow', this.root).checked) return;
     const view = $('.pl-view', this.root);
     const target = bar.getBoundingClientRect(), bounds = view.getBoundingClientRect();
-    if (target.top < bounds.top || target.bottom > bounds.bottom) {
+    if (this.stage && this.s.view !== 'page') {           // the line being played stays at the top, the next ones below it
+      const dy = (bar.closest('.chart-row') || bar).getBoundingClientRect().top - bounds.top;
+      if (Math.abs(dy) > 3) view.scrollTop += dy;
+    } else if (target.top < bounds.top || target.bottom > bounds.bottom) {
       view.scrollTop += target.top - bounds.top - Math.max(0, (view.clientHeight - target.height) / 2);
     }
   }
