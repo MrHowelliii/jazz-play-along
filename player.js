@@ -510,7 +510,7 @@ export class Player {
         <h3>Keys and pedals</h3>
         <p class="keys-help">Space, → or Page Down: play / pause · ← or Page Up: stop · ↑ ↓: tempo (Shift: by 1) · L: loop · S: stage view · R: record. A Bluetooth page-turner pedal works as play / pause and stop.</p>
         </section>
-      <section class="score-panel panel">${song.problems?.length ? '<small>Some measures may be misread. Check the original page.</small>' : ''}
+      <section class="score-panel panel">${song.scanned ? '<small>Read from a scanned page: some notes or chords may be wrong. Check the original page.</small>' : song.problems?.length ? '<small>Some measures may be misread. Check the original page.</small>' : ''}
       <div class="toolbar"><div class="quick" aria-label="Practice controls">
         <label>You play <select class="in-role-q" aria-label="You play">${ROLES.map(([v, t]) => `<option value="${v}" ${s.role === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
         <button type="button" class="btn-func" aria-pressed="false" title="Show chords as functions (ii7 V7 I) or as names" aria-label="Chord functions">ii–V</button>
@@ -735,7 +735,7 @@ export class Player {
     } else {
       let cur = null, lastKey = '';
       song.bars.forEach((b, k) => {
-        const key = b.box[0] + ':' + b.box[2];
+        const key = b.box ? b.box[0] + ':' + b.box[2] : 'n' + Math.floor(k / 4);
         if (key !== lastKey || newKey(cur, k)) { cur = []; rows.push(cur); lastKey = key; }
         cur.push(k);
       });
@@ -900,7 +900,7 @@ export class Player {
         // clickable bars on the page
         const bodyStart = song.pickup ? 1 : 0;
         song.bars.forEach((b, k) => {
-          if (b.box[0] !== pg || k < bodyStart) return;
+          if (!b.box || b.box[0] !== pg || k < bodyStart) return;
           const el = document.createElement('div'); el.className = 'clickbar'; el.dataset.src = k - bodyStart;
           place(el, b.box, vp1.width, vp1.height);
           el.onclick = (e) => this.barClick(k - bodyStart, e.shiftKey);
@@ -919,6 +919,7 @@ export class Player {
     if (src === -1 || src === -2) return;
     const bar = src === 'pickup' ? this.song.bars[0] : this.prep.body[src];
     if (!bar) return;
+    if (!bar.box) return;
     const p = this.pageEls[bar.box[0]]; if (!p) return;
     const h = document.createElement('div'); h.className = 'hl';
     place(h, bar.box, p.w, p.h);

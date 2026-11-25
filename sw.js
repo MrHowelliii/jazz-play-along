@@ -3,7 +3,7 @@
 // not kept: that view needs a connection.
 const VERSION = 'play-along-v4';
 const SHELL = ['./', 'index.html', 'player.js', 'notation.js', 'songform.js', 'studio.css', 'app/player.css', 'manifest.webmanifest',
-  'icons/icon-192.png', 'songs.json', 'books.json', 'leads/462jazz.json', 'engine/worklet.js', 'engine/jazzband.wasm',
+  'icons/icon-192.png', 'songs.json', 'books.json', 'leads/462jazz.json', 'leads/jazzfake.json', 'leads/realbook.json', 'engine/worklet.js', 'engine/jazzband.wasm',
   'engine/packs/jbdrums.jbp', 'engine/packs/jbbass.jbp', 'engine/packs/jbpiano.jbp', 'engine/packs/jbguitar.jbp', 'engine/packs/jblead.jbp'];
 const BINARY = /\.(wasm|jbp|png|woff2?)$|\/vendor\//;        // never change under the same name within a version
 
