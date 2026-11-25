@@ -1,7 +1,7 @@
 // player.js - the play-along player: the Jazz Band engine (WebAssembly, in an AudioWorklet) plays the chords with a
 // band and the melody with a lead voice, from lead sheets parsed out of the fake-book PDFs (leads/*.json).
 import { prepare, transposeSym, prettySym, KEY_NAMES, keyTonic, normTitle } from './songform.js';
-import { staffBar, rowHead, romanize, transposeKey } from './notation.js';
+import { staffBar, rowHead, romanize, transposeKey, barMap } from './notation.js';
 
 const INST = ['Drums', 'Bass', 'Piano', 'Guitar'];
 const PLAYERS = [
@@ -32,7 +32,7 @@ const LEAD_VOICES = [
 const LVL_DEFAULT = [23593, 26214, 20971, 11796];       // the plugin's defaults (Q15) for drums, bass, piano, guitar
 const LEAD_DEFAULT = 24000;
 const PACKS = ['jbdrums', 'jbbass', 'jbpiano', 'jbguitar', 'jblead'];   // jblead: the recorded alto sax (optional)
-const V = '?v=sound3';                                   // bump when engine files change under the same name
+const V = '?v=sound4';                                   // bump when engine files change under the same name
 const ICON = {
   play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>',
   pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4.5h4.5v15H6zM13.5 4.5H18v15h-4.5z"/></svg>',
@@ -183,6 +183,7 @@ export class Player {
     if (!this.s.sax) { this.s.sax = 1; this.s.leadSound = 6; this.save(); }      // once: the recorded alto sax becomes the lead
     this.s.tempo = null; this.s.key = 0;
     this.takes = [];
+    this.mix = { mute: [false, false, false, false, false], solo: [false, false, false, false, false] };   // until the page closes
     preload();
     onPos = (d) => this.position(d);
     // a call, Siri or a route change stops the audio: hold the band at this beat, Resume carries on from it
@@ -287,11 +288,15 @@ export class Player {
   }
   sendLevels() {
     const s = this.s, muted = { piano: 2, guitar: 3, bass: 1, drums: 0 }[s.role];
-    LVL_DEFAULT.forEach((d, i) => post({ t: 'level', inst: i, value: i === muted ? 1 : Math.min(32767, Math.round(d * s.levels[i] / 100)) }));
+    const heard = (ch) => this.heard(ch);                  // the mixer's mute and solo buttons (4 = the melody)
+    LVL_DEFAULT.forEach((d, i) => post({ t: 'level', inst: i, value: i === muted || !heard(i) ? 1 : Math.min(32767, Math.round(d * s.levels[i] / 100)) }));
     let lead = Math.round(LEAD_DEFAULT * s.lead / 100);
     if (s.role === 'lead') lead = s.guide ? Math.round(lead * 0.22) : 0;
+    if (!heard(4)) lead = 0;
+    this.root.querySelectorAll('.channel[data-ch]').forEach(el => el.classList.toggle('silent', !heard(+el.dataset.ch)));
     post({ t: 'leadsound', sound: s.leadSound === 6 && !packsOk[4] ? 4 : s.leadSound, level: lead, oct: s.leadOct });
   }
+  heard(ch) { const m = this.mix; return !m.mute[ch] && (!m.solo.some(Boolean) || m.solo[ch]); }
   leadMask() {
     const n = this.s.choruses;
     if (this.s.leadEvery || n === 1) return 0xFFFFFFFF;
@@ -467,11 +472,12 @@ export class Player {
           const choices = lead ? LEAD_VOICES.map(([label]) => label) : PLAYERS[i];
           const selected = lead ? s.leadSound : s.players[i];
           const level = lead ? s.lead : s.levels[i];
-          return `<section class="channel"><h4>${name}</h4>
+          return `<section class="channel" data-ch="${i}"><h4>${name}</h4>
             <div class="picker"><button type="button" data-step="-1" aria-label="Previous ${name} sound">‹</button>
             <select class="${lead ? 'in-leadsound' : 'in-player'}" data-i="${i}" aria-label="${name} player" aria-describedby="voice-note-${i}">${choices.map((n,k) => `<option value="${k}" ${selected===k?'selected':''}>${esc(n)}</option>`).join('')}</select>
             <button type="button" data-step="1" aria-label="Next ${name} sound">›</button></div>
             <p class="player-note" id="voice-note-${i}">${esc(lead ? LEAD_VOICES[selected][1] : STYLE_NOTES[i][selected])}</p>
+            <span class="ms"><button type="button" class="btn-mute" data-ch="${i}" aria-pressed="${this.mix.mute[i]}" aria-label="Mute ${name}" title="Mute ${name}">M</button><button type="button" class="btn-solo" data-ch="${i}" aria-pressed="${this.mix.solo[i]}" aria-label="Solo ${name}" title="Solo ${name}: only the soloed parts sound">S</button></span>
             <label class="fader"><input type="range" aria-label="${name} level" class="in-level" data-i="${lead?'lead':i}" min="0" max="150" value="${level}"><output>${level}%</output></label>
           </section>`;
         }).join('')}
@@ -512,7 +518,7 @@ export class Player {
         <button type="button" class="btn-rec" aria-pressed="false" title="Record yourself with the band">● Rec</button>
       </div>
       <div class="pl-tabs">
-        <span class="pl-seg seg-view"><button type="button" data-v="chart">Chart</button><button type="button" data-v="page">Original page</button></span>
+        <span class="pl-seg seg-view"><button type="button" data-v="chart" title="Melody and chords">Chart</button><button type="button" data-v="chords" title="Chords only, four bars to a line">Chords</button><button type="button" data-v="page">Original page</button></span>
         <button class="pl-btn btn-loop" type="button" title="Loop the bars you selected">Loop</button>
         <button class="pl-btn btn-clear" type="button">Clear selection</button>
         <label class="follow-control"><input type="checkbox" class="in-follow" checked> Follow score</label><span class="pl-hint">Tap a measure to jump there · to loop: tap the first bar, Loop, then the last bar (or Shift-click) · Space plays / pauses</span>
@@ -569,6 +575,11 @@ export class Player {
     $('.seg-role', r).onclick = (e) => { const b = e.target.closest('button'); if (b) setRole(b.dataset.v); };
     $('.in-role-q', r).onchange = (e) => setRole(e.target.value);
     $('.btn-rec', r).onclick = () => this.toggleRec();
+    r.querySelectorAll('.btn-mute, .btn-solo').forEach(b => b.onclick = () => {
+      const list = b.classList.contains('btn-mute') ? this.mix.mute : this.mix.solo, ch = +b.dataset.ch;
+      list[ch] = !list[ch]; b.setAttribute('aria-pressed', String(list[ch]));
+      this.sendLevels();
+    });
     const setMode = (v) => {
       s.chordMode = v; this.save();
       $('.in-chordmode', r).value = v; $('.btn-func', r).setAttribute('aria-pressed', String(v === 'func'));
@@ -643,10 +654,13 @@ export class Player {
     lb.disabled = !this.loop && !this.sel;
     if (this.s.view === 'page') { this.drawPages(view); return; }
     const p = this.prep, song = this.song, barLen = p.barLen;
-    const staff = this.s.notes !== 'roll', func = this.s.chordMode === 'func';
+    const grid = this.s.view === 'chords';                 // chords only, four bars to a line
+    const narrow = (view.clientWidth || innerWidth) < 700; // phones: compact chord symbols in every view
+    const staff = !grid && this.s.notes !== 'roll', func = this.s.chordMode === 'func';
     if (func && !this.roman) this.roman = romanize(song.bars, song.key || 0);
     // the staff: bar height, and the written pitch for the reader (key change and transposing instrument)
-    const barH = this.stage ? Math.max(120, Math.min(230, Math.round(innerHeight * 0.21))) : (view.clientWidth || innerWidth) < 700 ? 104 : 116;
+    const barH = grid ? (this.stage ? Math.max(84, Math.min(140, Math.round(innerHeight * 0.13))) : (view.clientWidth || innerWidth) < 700 ? 58 : 70)
+      : this.stage ? Math.max(120, Math.min(230, Math.round(innerHeight * 0.21))) : (view.clientWidth || innerWidth) < 700 ? 104 : 116;
     const horn = HORNS.find(x => x[0] === this.s.horn) || HORNS[0];
     let shift = this.s.key + horn[1];
     if (staff) {                                           // keep the transposed line on the staff
@@ -663,15 +677,32 @@ export class Player {
     const span = Math.max(8, hi - lo + 1);
     const barHTML = (b, i, cls, len, k) => {
       const L = len || barLen;
-      const chords = b.c.map((c, ci) => `<span style="left:${(c[0] / L * 100).toFixed(1)}%">${esc(func ? this.roman[k][ci] : this.chordLabel(c[1]))}</span>`).join('');
+      const map = staff ? barMap(b.n, L) : null;            // chords stand over their notes
+      const left = (t) => map ? Math.max(0, map(t) - 7) : t / L * 100;
+      const label = (c, ci) => func ? this.roman[k][ci] : this.chordLabel(c[1]);
+      // chords only: the root large, the quality small and raised, so two or three chords fit a narrow bar
+      const compact = (t) => {
+        const m = /^((?:sub)?[♭♯]?(?:[A-G]|[ivIV]+)[♭♯]?)(.*)$/.exec(t);
+        if (!m) return esc(t);
+        const q = m[2].replace(/^maj/, 'Δ').replace(/^m7\(♭5\)/, 'ø7').replace(/^m(?!a)/, '–').replace(/\(([^)]*)\)/g, ' $1');
+        return esc(m[1]) + (q ? `<sup>${esc(q)}</sup>` : '');
+      };
+      const chords = b.c.map((c, ci) => `<span style="left:${left(c[0]).toFixed(1)}%">${grid || narrow ? compact(label(c, ci)) : esc(label(c, ci))}</span>`).join('');
       let rects = '';
+      if (grid) {
+        const tags = [b.sg && b.sg.includes('segno') ? '𝄋' : '', b.sg && b.sg.includes('coda') ? '𝄌' : '', b.ds ? 'D.S.' : '', b.dc ? 'D.C.' : '', b.fn ? 'Fine' : ''].filter(Boolean).join(' ');
+        const volta = b.e ? `<div class="volta">${b.e.join(', ')}.</div>` : '';
+        const classes = ['bar', cls, b.rs ? 'rs' : '', b.re ? 're' : '', b.db ? 'db' : ''].filter(Boolean).join(' ');
+        return `<div class="${classes}" data-src="${i}">${volta}<div class="chords">${chords || '<span class="simile" style="left:50%" aria-label="same chord">%</span>'}</div>${tags ? `<span class="tag">${tags}</span>` : ''}</div>`;
+      }
       if (staff) {
+        const busy = Math.max(1, Math.min(2.2, b.n.length / 3 / 4.5));   // a crowded bar takes more of the line
         const nx = song.bars[k + 1], last = b.n.length ? b.n[b.n.length - 1] & 127 : 0;
         const tieOut = !!(nx && nx.n.length && nx.n[2] >= 128 && (nx.n[2] & 127) === last && last);
         const tags = [b.sg && b.sg.includes('segno') ? '𝄋' : '', b.sg && b.sg.includes('coda') ? '𝄌' : '', b.ds ? 'D.S.' : '', b.dc ? 'D.C.' : '', b.fn ? 'Fine' : ''].filter(Boolean).join(' ');
         const volta = b.e ? `<div class="volta">${b.e.join(', ')}.</div>` : '';
         const classes = ['bar', cls, b.rs ? 'rs' : '', b.re ? 're' : '', b.db ? 'db' : ''].filter(Boolean).join(' ');
-        return `<div class="${classes}" data-src="${i}">${volta}${staffBar(b.n, L, keyAt[k], shift, barH, tieOut, rowKey)}<div class="chords">${chords}</div>${tags ? `<span class="tag">${tags}</span>` : ''}</div>`;
+        return `<div class="${classes}" data-src="${i}" style="flex-grow:${busy.toFixed(2)}">${volta}${staffBar(b.n, L, keyAt[k], shift, barH, tieOut, rowKey)}<div class="chords">${chords}</div>${tags ? `<span class="tag">${tags}</span>` : ''}</div>`;
       }
       for (let k = 0; k < b.n.length; k += 3) {
         const t = b.n[k], d = b.n[k + 1], q = b.n[k + 2];
@@ -688,13 +719,16 @@ export class Player {
     // rows: the lines of the printed page when there is room; else 4 (or 2) bars a line, a new line at each section
     const rows = [];
     const bodyStart = song.pickup ? 1 : 0;
-    const per = this.stage ? (view.clientWidth >= 560 ? 4 : 2) : chartPerLine(view.clientWidth);
-    this.chartMode = per;
+    const per = this.perLine(view);
+    this.chartMode = per + ':' + this.s.view;
+    // a new key signature starts a new line (it is drawn at the start of the line)
+    const newKey = (cur, k) => staff && cur.length && k > bodyStart && keyAt[k] !== keyAt[cur[cur.length - 1]];
     if (per) {
       let cur = [];
       song.bars.forEach((b, k) => {
         const i = k - bodyStart, inRow = cur.filter(x => x >= bodyStart).length;
-        if (i >= 0 && cur.length && (inRow >= per || (i > 0 && p.section[i]))) { rows.push(cur); cur = []; }
+        if (grid && i < 0) return;                          // the pickup has no chord of its own
+        if (i >= 0 && cur.length && (inRow >= per || (i > 0 && p.section[i]) || newKey(cur, k))) { rows.push(cur); cur = []; }
         cur.push(k);
       });
       if (cur.length) rows.push(cur);
@@ -702,7 +736,7 @@ export class Player {
       let cur = null, lastKey = '';
       song.bars.forEach((b, k) => {
         const key = b.box[0] + ':' + b.box[2];
-        if (key !== lastKey) { cur = []; rows.push(cur); lastKey = key; }
+        if (key !== lastKey || newKey(cur, k)) { cur = []; rows.push(cur); lastKey = key; }
         cur.push(k);
       });
     }
@@ -723,10 +757,15 @@ export class Player {
     view.innerHTML = html;
     view.querySelector('.chart').classList.toggle('flow', !!per);
     view.querySelector('.chart').classList.toggle('staffed', staff);
+    view.querySelector('.chart').classList.toggle('chordgrid', grid);
     view.querySelector('.chart').style.setProperty('--barh', barH + 'px');
     view.querySelectorAll('.bar:not(.filler)').forEach(el => el.onclick = (e) => this.barClick(el.dataset.src, e.shiftKey));
     this.markSelection();
     this.fitChords();
+  }
+  perLine(view) {
+    if (this.s.view === 'chords') return 4;
+    return this.stage ? (view.clientWidth >= 560 ? 4 : 2) : chartPerLine(view.clientWidth);
   }
   // chord names shrink to fit before the next chord (or the bar line)
   fitChords() {
@@ -735,13 +774,26 @@ export class Player {
       const spans = [...bar.querySelectorAll('.chords span')];
       spans.forEach(sp => { sp.style.fontSize = ''; });
       // one size for every chord in the bar: the size at which the tightest of them fits
-      let scale = 1;
-      spans.forEach((sp, k) => {
-        const end = k + 1 < spans.length ? spans[k + 1].offsetLeft : bar.clientWidth;
-        const room = end - sp.offsetLeft - 3, need = sp.scrollWidth;
-        if (need > room && room > 0) scale = Math.min(scale, room / need);
-      });
-      if (scale < 1) spans.forEach(sp => { sp.style.fontSize = Math.max(0.42, scale).toFixed(3) + 'em'; });
+      const measure = () => {
+        let sc = 1;
+        spans.forEach((sp, k) => {
+          const end = k + 1 < spans.length ? spans[k + 1].offsetLeft : bar.clientWidth;
+          const room = end - sp.offsetLeft - 3, need = sp.scrollWidth;
+          if (need > room && room > 0) sc = Math.min(sc, room / need);
+        });
+        return sc;
+      };
+      let scale = measure();
+      if (scale < 0.8 && spans.length > 1 && bar.closest('.chordgrid')) {   // chords only: share the bar by need, not by the beat
+        const total = spans.reduce((a, sp) => a + sp.scrollWidth + 6, 0);
+        let x = 0;
+        spans.forEach(sp => { sp.style.left = (x / total * 100).toFixed(1) + '%'; x += sp.scrollWidth + 6; });
+        scale = measure();
+      }
+      if (scale < 1) {                                      // relative to the size the style sheet gives this view
+        const base = parseFloat(getComputedStyle(spans[0]).fontSize);
+        spans.forEach(sp => { sp.style.fontSize = (base * Math.max(0.55, scale)).toFixed(1) + 'px'; });
+      }
     });
   }
   resized() {
@@ -749,7 +801,7 @@ export class Player {
     const view = $('.pl-view', this.root); if (!view) return;
     if (this.s.view === 'page') {
       if (Math.abs((this.pageWidth || 0) - view.clientWidth) > 40) this.drawChart();
-    } else if ((this.stage ? (view.clientWidth >= 560 ? 4 : 2) : chartPerLine(view.clientWidth)) !== this.chartMode) { this.drawChart(); if (this.state.playing && this.lastSrc != null) this.highlight(this.lastSrc, this.lastBeat); }
+    } else if (this.perLine(view) + ':' + this.s.view !== this.chartMode) { this.drawChart(); if (this.state.playing && this.lastSrc != null) this.highlight(this.lastSrc, this.lastBeat); }
     else this.fitChords();
   }
   barClick(src, shift) {

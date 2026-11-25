@@ -1,5 +1,5 @@
---- a/web/jb_web.c	2026-11-25 12:15:33.951696538 +0000
-+++ b/web/jb_web.c	2026-11-25 12:15:33.953912952 +0000
+--- a/web/jb_web.c	2026-11-25 12:33:42.518114888 +0000
++++ b/web/jb_web.c	2026-11-25 12:33:42.520093014 +0000
 @@ -153,7 +153,7 @@
      for (int b = 0; b <= JB_MAXBARS; b++) { while (k < lead_n && LN[k].bar < b) k++; lead_first[b] = k; }
  }
@@ -35,7 +35,7 @@
          int32_t keep = e->lvl[li];
          e->lvl[li] = (lead_level * 40960) >> 15;
          int sn = e->strum_n; e->strum_n = 0;
-@@ -254,13 +258,21 @@
+@@ -255,13 +259,21 @@
      }
      static int rr;
      lvoice_t *v = &LV[0];                                  /* horn: monophonic, the newest note takes the voice (legato) */
@@ -58,7 +58,7 @@
      v->f = FREQ[note];
      v->on = 1;
  }
-@@ -293,7 +305,18 @@
+@@ -294,7 +306,18 @@
              if (v->wait > 0) { v->wait--; continue; }
              float target = v->rel ? 0.0f : 1.0f;
              float s;
@@ -78,7 +78,7 @@
                  if (v->age == 0) v->env = 1.0f;
                  v->env *= v->rel ? 0.99965f : 0.99996f;
                  float mod = fsin(v->ph2) * 1.2f * v->env;
-@@ -327,6 +350,23 @@
+@@ -328,6 +351,23 @@
      }
  }
  

@@ -32,7 +32,22 @@ function value(d) {
   for (const base of [192, 96, 48, 24, 12, 6]) if (d >= base) return { base, dots: 0 };
   return { base: 6, dots: 0 };
 }
-const pct = (t, L) => (9 + t / L * 85).toFixed(2) + '%';
+// Where a moment of the bar sits across its width, in percent. Notes are not spaced by the clock alone: a short note
+// still needs room for its head, so each note gets the square root of its share of the bar.
+export function barMap(notes, L) {
+  const ts = [];
+  for (let k = 0; k < notes.length; k += 3) if (!ts.length || notes[k] > ts[ts.length - 1]) ts.push(notes[k]);
+  if (!ts.length || ts[0] > 0) ts.unshift(0);
+  ts.push(Math.max(L, ts[ts.length - 1] + 1));
+  const xs = [0];
+  for (let i = 1; i < ts.length; i++) xs.push(xs[i - 1] + Math.sqrt((ts[i] - ts[i - 1]) / L));
+  const total = xs[xs.length - 1];
+  return (t) => {
+    let i = 1; while (i < ts.length - 1 && ts[i] <= t) i++;
+    const f = Math.max(0, Math.min(1, (t - ts[i - 1]) / (ts[i] - ts[i - 1])));
+    return 9 + (xs[i - 1] + (xs[i] - xs[i - 1]) * f) / total * 85;
+  };
+}
 const n2 = (x) => (Math.round(x * 100) / 100).toString();
 
 // geometry for a bar `h` pixels high: chords above, the staff around 60% down
@@ -72,6 +87,7 @@ export function rowHead(fifths, h) {
 export function staffBar(notes, L, fifths, semis, h, tieOut, sigFifths = fifths) {
   const m = staffMetrics(h), sp = m.sp, hw = sp * 0.62, stemLen = sp * 3.3;
   const yOf = (dn) => m.bottom - (dn - 30) * sp / 2;
+  const map = barMap(notes, L), pct = (t) => map(t).toFixed(2) + '%';
   const state = {};                                            // accidentals in force in this bar: letter+octave -> alter
   const ev = [];
   for (let k = 0; k < notes.length; k += 3) {
@@ -100,25 +116,25 @@ export function staffBar(notes, L, fifths, semis, h, tieOut, sigFifths = fifths)
     const tip = up ? Math.min(...g.map(e => e.y)) - stemLen : Math.max(...g.map(e => e.y)) + stemLen;
     g.forEach(e => grouped.set(e, { up, tip }));
     const dx = n2(up ? hw : -hw), y = n2(tip + (up ? sp * 0.22 : -sp * 0.22));
-    s += `<line class="beam" x1="${pct(g[0].t, L)}" x2="${pct(g[g.length - 1].t, L)}" y1="${y}" y2="${y}" transform="translate(${dx} 0)" stroke-width="${n2(sp * 0.45)}"/>`;
+    s += `<line class="beam" x1="${pct(g[0].t)}" x2="${pct(g[g.length - 1].t)}" y1="${y}" y2="${y}" transform="translate(${dx} 0)" stroke-width="${n2(sp * 0.45)}"/>`;
     for (let k = 0; k < g.length; k++) {                       // second beam for 16ths (a stub when the neighbour is an 8th)
       if (g[k].v.base > 12) continue;
       const y2 = n2(tip + (up ? sp * 0.92 : -sp * 0.92));
       const nxt = g[k + 1], prv = g[k - 1];
-      if (nxt && nxt.v.base <= 12) s += `<line class="beam" x1="${pct(g[k].t, L)}" x2="${pct(nxt.t, L)}" y1="${y2}" y2="${y2}" transform="translate(${dx} 0)" stroke-width="${n2(sp * 0.45)}"/>`;
+      if (nxt && nxt.v.base <= 12) s += `<line class="beam" x1="${pct(g[k].t)}" x2="${pct(nxt.t)}" y1="${y2}" y2="${y2}" transform="translate(${dx} 0)" stroke-width="${n2(sp * 0.45)}"/>`;
       else if (!(prv && prv.v.base <= 12)) {
         const to = nxt ? g[k].t + (nxt.t - g[k].t) * 0.45 : g[k].t - (g[k].t - prv.t) * 0.45;
-        s += `<line class="beam" x1="${pct(g[k].t, L)}" x2="${pct(to, L)}" y1="${y2}" y2="${y2}" transform="translate(${dx} 0)" stroke-width="${n2(sp * 0.45)}"/>`;
+        s += `<line class="beam" x1="${pct(g[k].t)}" x2="${pct(to)}" y1="${y2}" y2="${y2}" transform="translate(${dx} 0)" stroke-width="${n2(sp * 0.45)}"/>`;
       }
     }
     if (g[0].v.tuplet) {
       const mid = (g[0].t + g[g.length - 1].t) / 2;
-      s += `<text class="tup" x="${pct(mid, L)}" y="${n2(tip + (up ? -sp * 0.5 : sp * 1.5))}" font-size="${n2(sp * 1.5)}" text-anchor="middle">3</text>`;
+      s += `<text class="tup" x="${pct(mid)}" y="${n2(tip + (up ? -sp * 0.5 : sp * 1.5))}" font-size="${n2(sp * 1.5)}" text-anchor="middle">3</text>`;
     }
   }
   let prev = null;
   for (const e of ev) {
-    const x = pct(e.t, L);
+    const x = pct(e.t);
     let g = '';
     if (e.rest) {
       const y = m.top + 2 * sp;
@@ -158,12 +174,12 @@ export function staffBar(notes, L, fifths, semis, h, tieOut, sigFifths = fifths)
     // ties: from the previous note, or in from the bar before
     const below = e.dn >= 34, ty = e.y + (below ? -sp * 0.9 : sp * 0.9);
     const arc = (a, b) => `<svg class="tiebox" x="${a}" y="${n2(below ? ty - sp : ty)}" width="${b}" height="${n2(sp)}" viewBox="0 0 100 10" preserveAspectRatio="none" overflow="visible"><path class="tie" d="M3 ${below ? 10 : 0} Q50 ${below ? -6 : 16} 97 ${below ? 10 : 0}" vector-effect="non-scaling-stroke"/></svg>`;
-    if (e.tie && prev && prev.midi === e.midi) s += arc(pct(prev.t, L), (parseFloat(pct(e.t, L)) - parseFloat(pct(prev.t, L))).toFixed(2) + '%');
-    else if (e.tie && !prev) s += arc('0%', pct(e.t, L));
+    if (e.tie && prev && prev.midi === e.midi) s += arc(pct(prev.t), (parseFloat(pct(e.t)) - parseFloat(pct(prev.t))).toFixed(2) + '%');
+    else if (e.tie && !prev) s += arc('0%', pct(e.t));
     prev = e;
   }
   if (tieOut && prev) {
-    const below = prev.dn >= 34, ty = prev.y + (below ? -sp * 0.9 : sp * 0.9), a = parseFloat(pct(prev.t, L));
+    const below = prev.dn >= 34, ty = prev.y + (below ? -sp * 0.9 : sp * 0.9), a = parseFloat(pct(prev.t));
     s += `<svg class="tiebox" x="${a}%" y="${n2(below ? ty - sp : ty)}" width="${(100 - a).toFixed(2)}%" height="${n2(sp)}" viewBox="0 0 100 10" preserveAspectRatio="none" overflow="visible"><path class="tie" d="M3 ${below ? 10 : 0} Q50 ${below ? -6 : 16} 100 ${below ? 2 : 8}" vector-effect="non-scaling-stroke"/></svg>`;
   }
   return `<svg class="staff" width="100%" height="${n2(h)}" aria-hidden="true">${s}</svg>`;

@@ -100,3 +100,20 @@ body.playing-view #player{grid-template-rows:auto minmax(0,1fr) 44px auto}
 body.stage.playing-view #player{grid-template-rows:auto minmax(0,1fr) 44px auto}
 @media(max-width:640px){body.playing-view #player{grid-template-rows:auto minmax(0,1fr) 38px auto}#player .tempo-strip .in-tempo-r{height:36px}#player .tempo-strip input[type=number]{min-height:34px}}
 @media(max-height:480px){body.playing-view #player{grid-template-rows:auto minmax(0,1fr) 36px auto}}
+
+/* mixer: mute and solo */
+.channel{grid-template-columns:auto minmax(0,1fr)}.channel .ms{display:flex;gap:4px}.channel .ms+.fader{grid-column:2}
+#player .ms button{width:44px;min-height:40px;padding:0;font:600 15px system-ui}
+#player .btn-mute[aria-pressed=true]{background:#b3261e;border-color:#b3261e;color:#fff}#player .btn-solo[aria-pressed=true]{background:#e2b94a;border-color:#e2b94a;color:#10262a}
+.channel.silent h4,.channel.silent .fader,.channel.silent .picker,.channel.silent .player-note{opacity:.45}
+.room-channel{grid-template-columns:65px minmax(0,1fr)}
+/* chords only: four bars to a line, the symbols large */
+.chart.chordgrid{gap:0}.chart.chordgrid .chart-row{border-bottom:1px solid var(--border)}.chart.chordgrid .bar{height:var(--barh,64px);border-left:2px solid #6f8587}
+.chart.chordgrid .bar:last-child{border-right:2px solid #6f8587}.chart.chordgrid .bar.rs{border-left:5px double var(--gold)}.chart.chordgrid .bar.re{border-right:5px double var(--gold)!important}
+.chart.chordgrid .bar .chords{top:50%;height:0}.chart.chordgrid .bar .chords span{transform:translateY(-50%);font-size:clamp(1.25rem,5vw,2rem);font-weight:600;padding-left:6px}
+.chart.chordgrid .bar .simile{color:var(--muted);font-weight:400;transform:translate(-50%,-50%)!important;padding:0!important}
+.chart.chordgrid .bar .volta{font-size:.7rem}.chart.chordgrid .bar.filler{border:0}
+body.stage .chart.chordgrid .bar .chords span{font-size:clamp(1.5rem,6vw,3.4rem)}
+.chart.chordgrid .bar .chords sup{font-size:.56em;font-weight:500;vertical-align:.55em;margin-left:1px;letter-spacing:-.01em}
+.chart.chordgrid .bar .chords span{padding-left:4px;white-space:nowrap}
+.bar .chords sup{font-size:.6em;font-weight:500;vertical-align:.5em;margin-left:1px}

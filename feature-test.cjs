@@ -107,6 +107,23 @@ const URL = process.env.SITE || 'http://127.0.0.1:8765/';
     assert.deepEqual(await page.evaluate(() => { const s = JSON.parse(localStorage['playalong.settings']); return [s.room, s.latency, s.passStep]; }), [30, 120, 8]);
     await $('.in-latency').fill('0'); await $('.in-latency').press('Enter'); await $('.in-pass').selectOption('0');
 
+    // 9b. mixer: mute and solo; the chords-only view
+    await button('Mixer').click();
+    await button('Solo Bass').click();
+    assert.deepEqual(await page.$$eval('.channel.silent', e => e.map(x => x.dataset.ch)), ['0', '2', '3', '4'], 'solo leaves only the bass');
+    await button('Solo Bass').click(); await button('Mute Piano').click();
+    assert.deepEqual(await page.$$eval('.channel.silent', e => e.map(x => x.dataset.ch)), ['2']);
+    await button('Mute Piano').click();
+    assert.equal(await page.locator('.channel.silent').count(), 0);
+    await button('Score').click();
+    await button('Chords').click();
+    assert.equal(await page.locator('.chart.chordgrid .staff').count(), 0, 'chords view has no staff');
+    assert.equal(await page.locator('.chart.chordgrid .chart-row').first().locator('.bar').count(), 4, 'four bars to a line');
+    assert.ok(await page.locator('.chart.chordgrid .bar .chords span').first().evaluate(e => parseFloat(getComputedStyle(e).fontSize) >= 18));
+    await button('Chart').click();
+    assert.ok(await page.locator('.chart.staffed .staff').count() > 4);
+    await button('Setup').click();
+
     // 10. my list: star two tunes, play the list in order
     await $('.in-chor').selectOption('1'); await button('Score').click();
     await button('Add to my list').click();
