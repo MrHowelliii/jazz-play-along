@@ -120,6 +120,8 @@ export class Player {
 
   open(song) {
     if (this.state.playing) this.stop();
+    this.loadRequest = (this.loadRequest || 0) + 1;
+    this.starting = false;
     this.song = song;
     this.s.tempo = song.tempo || defaultTempo(song);
     this.s.key = 0; this.startSrc = -1; this.loop = null;
@@ -176,27 +178,45 @@ export class Player {
     } else post({ t: 'loop', from: -1, to: -1, kstep: 0 });
   }
 
-  async toggle() { if (this.state.playing) this.stop(); else await this.play(); }
+  async toggle() {
+    if (!this.state.playing) {
+      if (!this.starting) await this.play();
+      return;
+    }
+    this.paused = !this.paused;
+    post({ t: this.paused ? 'pause' : 'resume' });
+    this.updateTransport();
+  }
   async play() {
+    const request = this.loadRequest;
+    this.starting = true;
+    this.updateTransport();
     try {
-      await ensureEngine((m) => this.status(m));
+      await ensureEngine((m) => { if (request === this.loadRequest) this.status(m); });
+      await ctx.resume();
     } catch (err) {
+      if (request !== this.loadRequest) return;
+      this.starting = false;
+      this.updateTransport();
       this.status('Audio could not start. ' + (err.message || err));
       return;
     }
-    await ctx.resume();
+    if (request !== this.loadRequest) return;
+    this.starting = false;
+    this.paused = false;
     this.sendSong();
     const from = this.loop ? this.prep.form.indexOf(this.loop[0]) : this.startSrc >= 0 ? this.prep.form.indexOf(this.startSrc) : -1;
     post({ t: 'play', from });
     this.state.playing = true;
     this.updateTransport();
   }
-  stop() { post({ t: 'stop' }); this.state.playing = false; this.state.bar = -1; this.updateTransport(); this.highlight(-1); }
+  stop() { this.paused = false; post({ t: 'stop' }); this.state.playing = false; this.state.bar = -1; this.updateTransport(); this.highlight(-1); }
   finish() { post({ t: 'finish' }); }
 
   position(d) {
     const was = this.state.playing;
     this.state = { playing: d.state !== 0, bar: d.bar, beat: d.beat, chorus: d.chorus, kind: d.kind, state: d.state };
+    if (!this.state.playing) this.paused = false;
     if (was !== this.state.playing) this.updateTransport();
     if (!this.state.playing) { this.highlight(-1); this.status(''); return; }
     const src = d.state === 2 ? (this.prep.pickup ? 'pickup' : -1) : d.kind === 0 ? this.prep.form[d.bar] : -2;
@@ -211,9 +231,11 @@ export class Player {
   updateTransport() {
     const b = $('.pl-play', this.root);
     if (!b) return;
-    b.textContent = this.state.playing ? '■ Stop' : '▶ Play';
+    b.textContent = this.starting ? 'Loading…' : this.paused ? 'Resume' : this.state.playing ? 'Pause' : '▶ Play';
+    b.disabled = !!this.starting;
+    $('.pl-stop', this.root).disabled = !this.state.playing;
     b.classList.toggle('stop', this.state.playing);
-    $('.pl-finish', this.root).disabled = !this.state.playing;
+    $('.pl-finish', this.root).disabled = !this.state.playing || this.paused;
   }
 
   // ------------------------------------------------------------------------------------------ view
@@ -277,6 +299,7 @@ export class Player {
       <div class="pl-view"></div></section>
       <nav class="dock" aria-label="Playback controls">
         <button class="pl-play" type="button">▶ Play</button>
+        <button type="button" class="pl-stop" disabled>Stop</button>
         <button type="button" data-panel="score" aria-pressed="true">Score</button>
         <button type="button" data-panel="mix" aria-pressed="false">Mixer</button>
         <button type="button" data-panel="setup" aria-pressed="false">Setup</button>
@@ -287,6 +310,7 @@ export class Player {
     $('.lbl-guide', r).style.display = s.role === 'lead' ? '' : 'none';
     this.panel = 'score';
     $('.pl-back', r).onclick = () => this.onbrowse?.();
+    $('.pl-stop', r).onclick = () => this.stop();
     $('.pl-play', r).onclick = () => this.toggle();
     $('.pl-finish', r).onclick = () => this.finish();
     const panels = {score: $('.score-panel',r), mix: $('.mix-sheet',r), setup: $('.setup-sheet',r)};
@@ -583,6 +607,7 @@ function guessFeel(song) {
   return 0;
 }
 export { normTitle };
+
 
 
 

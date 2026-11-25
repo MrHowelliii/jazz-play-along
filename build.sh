@@ -7,7 +7,7 @@ cp index.html player.js studio.css "$site/"
 cp catalog/app/songform.js "$site/"
 cp -R catalog/{app,books,leads,vendor} "$site/"
 cp catalog/{books.json,songs.json,practice.html} "$site/"
-cp catalog/engine/worklet.js "$site/engine/"
+cp worklet.js "$site/engine/"
 cp upstream/{LICENSE,NOTICE,UPSTREAM-NOTICE} "$site/engine/"
 cp "upstream/sound packs/CREDITS.md" "$site/engine/packs/"
 cd upstream/jazzband-op1r
@@ -31,3 +31,4 @@ python3 -m http.server 8765 --directory site --bind 127.0.0.1 >/tmp/play-along-t
 server_pid=$!
 trap 'kill "$server_pid" || true' EXIT
 NODE_PATH="$test_deps/node_modules" node mobile-test.cjs
+
