@@ -13,9 +13,8 @@ cp "upstream/sound packs/CREDITS.md" "$site/engine/packs/"
 cd upstream/jazzband-op1r
 sh web/build.sh
 mkdir -p web/packs
-cc -O2 -Imock web/pack2web.c -o /tmp/jazz-pack2web
 for pack in jbdrums jbbass jbpiano jbguitar; do
-  /tmp/jazz-pack2web "../sound packs/$pack.op1p" "web/packs/$pack.jbp"
+  cp "$root/catalog/engine/packs/$pack.jbp" "web/packs/$pack.jbp"
 done
 node web/test/wasm.test.mjs
 cp web/jazzband.wasm "$site/engine/"
