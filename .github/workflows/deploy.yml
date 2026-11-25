@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: MrHowelliii/jazzband-op1r
-          ref: 23383d7d139dfac1924d6e83db18fcc3cfbbecae
+          ref: 3df69f6146c0d06dc48213fea4ef57d81e83f13a
           path: upstream
       - uses: actions/checkout@v4
         with:

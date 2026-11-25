@@ -25,6 +25,15 @@ body.browsing #songs header{display:none}body.browsing #lib-strip,body.browsing 
 #player .dock .pl-stop:disabled{opacity:.4}
 @media(max-width:360px){#player .dock button{font-size:14px}}
 
+body.playing-view #player{grid-template-rows:auto 32px minmax(0,1fr) 44px auto}
+#player .tempo-strip{grid-row:4;display:grid;grid-template-columns:auto minmax(0,1fr) 60px auto;align-items:center;gap:8px;width:min(590px,100%);justify-self:center;font:500 14px system-ui;color:var(--text)}
+#player .tempo-strip .in-tempo-r{display:block;width:100%;min-width:0;height:44px;margin:0;accent-color:var(--gold);touch-action:pan-y}
+#player .tempo-strip .in-tempo{width:100%;padding:0 4px;text-align:center;font-variant-numeric:tabular-nums}
+.tempo-strip span{font:12px system-ui;color:var(--muted)}
+#player .dock{grid-row:5}
+#player .player-note{grid-column:1/-1;min-height:2.6em;margin:2px 0 0;font:14px/1.3 system-ui;color:var(--muted)}
+#player .pdfpage .hl{pointer-events:none}
+@media(max-height:480px){body.playing-view #player{grid-template-rows:auto 22px minmax(0,1fr) 44px auto}}
 /* practice controls above the chart; the count and "what's next" over it */
 .quick{flex:none;display:flex;align-items:center;gap:6px;overflow-x:auto;margin:0 0 6px}.quick>*{flex-shrink:0}.quick label{display:flex;align-items:center;gap:6px;color:var(--muted);font:13px system-ui;white-space:nowrap}
 #player .quick select{padding:0 6px}.tempo-step{display:inline-flex;align-items:center;gap:2px}.tempo-step output{min-width:3.2ch;text-align:center;font:600 17px system-ui;font-variant-numeric:tabular-nums;color:var(--cream)}
@@ -84,3 +93,10 @@ body.playing-view #player{grid-template-rows:auto minmax(0,1fr) auto;gap:4px}
   .follow-control{min-height:38px}
 }
 @media(max-height:480px){body.playing-view #player{grid-template-rows:auto minmax(0,1fr) auto;gap:2px}#player .toolbar .quick label{display:none}.dock button{min-height:40px!important}}
+
+/* with the tempo strip: head, panel, tempo, dock */
+body.playing-view #player{grid-template-rows:auto minmax(0,1fr) 44px auto}
+#player .tempo-strip{grid-row:3}#player .dock{grid-row:4}
+body.stage.playing-view #player{grid-template-rows:auto minmax(0,1fr) 44px auto}
+@media(max-width:640px){body.playing-view #player{grid-template-rows:auto minmax(0,1fr) 38px auto}#player .tempo-strip .in-tempo-r{height:36px}#player .tempo-strip input[type=number]{min-height:34px}}
+@media(max-height:480px){body.playing-view #player{grid-template-rows:auto minmax(0,1fr) 36px auto}}

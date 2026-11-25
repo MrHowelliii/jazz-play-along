@@ -13,12 +13,16 @@ cp worklet.js "$site/engine/"
 cp upstream/{LICENSE,NOTICE,UPSTREAM-NOTICE} "$site/engine/"
 cp catalog/engine/packs/CREDITS.md "$site/engine/packs/"
 cd upstream/jazzband-op1r
+patch -p1 < "$root/playback.patch"
+python3 "$root/trumpet-header.py" "$root/muted-trumpet.wav" > web/trumpet-data.h
+cp "$root/melody-credits.md" "$site/engine/packs/"
 sh web/build.sh
 mkdir -p web/packs
 for pack in jbdrums jbbass jbpiano jbguitar jblead; do
   cp "$root/catalog/engine/packs/$pack.jbp" "web/packs/$pack.jbp"
 done
 node web/test/wasm.test.mjs
+node "$root/melody-test.cjs"
 cp web/jazzband.wasm "$site/engine/"
 cp web/packs/*.jbp "$site/engine/packs/"
 

@@ -1,7 +1,7 @@
 // Service worker: the app, the song library and the instruments are kept on the device, so Jazz Play-Along opens
 // from the home screen and plays without a connection. The book PDFs (the "Original page" view) are large and are
 // not kept: that view needs a connection.
-const VERSION = 'play-along-v2';
+const VERSION = 'play-along-v3';
 const SHELL = ['./', 'index.html', 'player.js', 'notation.js', 'songform.js', 'studio.css', 'app/player.css', 'manifest.webmanifest',
   'icons/icon-192.png', 'songs.json', 'books.json', 'leads/462jazz.json', 'engine/worklet.js', 'engine/jazzband.wasm',
   'engine/packs/jbdrums.jbp', 'engine/packs/jbbass.jbp', 'engine/packs/jbpiano.jbp', 'engine/packs/jbguitar.jbp', 'engine/packs/jblead.jbp'];
@@ -19,7 +19,7 @@ self.addEventListener('fetch', (e) => {
   e.respondWith((async () => {
     const cache = await caches.open(VERSION);
     const keep = (res) => { if (res.ok && res.status === 200) cache.put(req, res.clone()); return res; };
-    if (BINARY.test(url.pathname)) return (await cache.match(req)) || keep(await fetch(req));
+    if (BINARY.test(url.pathname)) return (await cache.match(req)) || (!url.search && await cache.match(req, { ignoreSearch: true })) || keep(await fetch(req));
     try { return keep(await fetch(req)); }                    // pages, code and data: the newest when online
     catch (err) {
       const hit = await cache.match(req, { ignoreSearch: req.mode === 'navigate' }) || (req.mode === 'navigate' && await cache.match('./'));

@@ -16,7 +16,7 @@ const URL = process.env.SITE || 'http://127.0.0.1:8765/';
     const page = await context.newPage();
     page.on('pageerror', e => errors.push(e.message));
     const loaded = new Set();
-    page.on('response', r => { if (/\.(wasm|jbp)$/.test(r.url()) && r.ok()) loaded.add(r.url().split('/').pop()); });
+    page.on('response', r => { if (/\.(wasm|jbp)(\?|$)/.test(r.url()) && r.ok()) loaded.add(r.url().split('/').pop()); });
     await page.goto(URL + '#play=462jazz-60');
     const $ = s => page.locator(s);
     const text = s => $(s).textContent();
@@ -28,11 +28,11 @@ const URL = process.env.SITE || 'http://127.0.0.1:8765/';
     assert.equal(loaded.size, 6, 'engine and five instruments preloaded: ' + [...loaded]);
 
     // 2. tempo from the quick row, remembered for this tune
-    const base = +(await text('.tempo-now'));
-    await button('Faster').click(); await button('Faster').click();
-    assert.equal(+(await text('.tempo-now')), base + 10);
+    const base = +(await $('.in-tempo').inputValue());
+    await $('.in-tempo').fill(String(base + 10)); await $('.in-tempo').press('Enter');
+    assert.equal(+(await $('.in-tempo').inputValue()), base + 10);
     await page.reload(); await $('#player .bar').first().waitFor();
-    assert.equal(+(await text('.tempo-now')), base + 10, 'tempo remembered per tune');
+    assert.equal(+(await $('.in-tempo').inputValue()), base + 10, 'tempo remembered per tune');
     await page.goto(URL + '#play=462jazz-83'); await page.reload(); await $('#player .bar').first().waitFor();
     assert.notEqual(await text('.song-head h2'), 'Autumn Leaves');
     await page.goto(URL + '#play=462jazz-60'); await page.reload(); await $('#player .bar').first().waitFor();
@@ -47,9 +47,9 @@ const URL = process.env.SITE || 'http://127.0.0.1:8765/';
 
     // 4. keys: tempo, pause, stop
     await page.locator('body').click({ position: { x: 5, y: 5 } });
-    const t0 = +(await text('.tempo-now'));
-    await page.keyboard.press('ArrowUp'); assert.equal(+(await text('.tempo-now')), t0 + 5);
-    await page.keyboard.press('Shift+ArrowDown'); assert.equal(+(await text('.tempo-now')), t0 + 4);
+    const t0 = +(await $('.in-tempo').inputValue());
+    await page.keyboard.press('ArrowUp'); assert.equal(+(await $('.in-tempo').inputValue()), t0 + 5);
+    await page.keyboard.press('Shift+ArrowDown'); assert.equal(+(await $('.in-tempo').inputValue()), t0 + 4);
     await page.keyboard.press('PageDown'); await button('Resume').waitFor();
     await page.keyboard.press('ArrowRight'); await button('Pause').waitFor();
     await page.keyboard.press('PageUp'); await button('Play').waitFor();
@@ -62,9 +62,9 @@ const URL = process.env.SITE || 'http://127.0.0.1:8765/';
     await button('Loop').click();
     await button('Play').click();
     await page.waitForFunction(() => /Loop pass 3/.test(document.querySelector('.pl-status')?.textContent), null, { timeout: 30000 });
-    assert.equal(+(await text('.tempo-now')), 316, 'two passes at +8');
+    assert.equal(+(await $('.in-tempo').inputValue()), 316, 'two passes at +8');
     await button('Stop').click();
-    assert.equal(+(await text('.tempo-now')), 300, 'tempo restored after the loop');
+    assert.equal(+(await $('.in-tempo').inputValue()), 300, 'tempo restored after the loop');
     await button('Loop on').click(); await button('Clear selection').click();
 
     // 6. "Solos next" a bar before the melody drops out (3 choruses: head, solos, head)
