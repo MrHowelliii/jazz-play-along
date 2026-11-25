@@ -3,7 +3,7 @@ set -euo pipefail
 root=$(pwd)
 site="$root/site"
 mkdir -p "$site/engine/packs"
-cp index.html player.js studio.css "$site/"
+cp index.html player.js notation.js studio.css "$site/"
 cp sw.js manifest.webmanifest "$site/"
 cp -R icons "$site/"
 cp catalog/app/songform.js "$site/"
@@ -11,11 +11,11 @@ cp -R catalog/{app,books,leads,vendor} "$site/"
 cp catalog/{books.json,songs.json,practice.html} "$site/"
 cp worklet.js "$site/engine/"
 cp upstream/{LICENSE,NOTICE,UPSTREAM-NOTICE} "$site/engine/"
-cp "upstream/sound packs/CREDITS.md" "$site/engine/packs/"
+cp catalog/engine/packs/CREDITS.md "$site/engine/packs/"
 cd upstream/jazzband-op1r
 sh web/build.sh
 mkdir -p web/packs
-for pack in jbdrums jbbass jbpiano jbguitar; do
+for pack in jbdrums jbbass jbpiano jbguitar jblead; do
   cp "$root/catalog/engine/packs/$pack.jbp" "web/packs/$pack.jbp"
 done
 node web/test/wasm.test.mjs

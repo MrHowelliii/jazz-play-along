@@ -9,7 +9,7 @@ const assert = require('node:assert/strict');
     page.on('pageerror', e=>console.error(e.message));
     await page.goto('http://127.0.0.1:8765', {waitUntil:'domcontentloaded'});
     const button = name => page.getByRole('button', {name,exact:true});
-    await button('▶ Play').tap();
+    await button('Play').tap();
     await button('Stop').waitFor({timeout:30000});
     const status = page.locator('.pl-status');
     await page.waitForFunction(()=>document.querySelector('.pl-status')?.textContent.includes('Chorus'));
@@ -45,7 +45,7 @@ const assert = require('node:assert/strict');
     await button('← Back to tune').tap();
     await button('Pause').tap();
     await button('Stop').tap();
-    await button('▶ Play').waitFor();
+    await button('Play').waitFor();
     for(const size of [{width:320,height:568},{width:844,height:390},{width:1024,height:768}]){
       await page.setViewportSize(size);
       await button('Mixer').tap();

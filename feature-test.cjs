@@ -25,7 +25,7 @@ const URL = process.env.SITE || 'http://127.0.0.1:8765/';
 
     // 1. the band downloads before anyone presses Play
     await page.waitForFunction(() => true); await page.waitForTimeout(1500);
-    assert.equal(loaded.size, 5, 'engine and four instruments preloaded: ' + [...loaded]);
+    assert.equal(loaded.size, 6, 'engine and five instruments preloaded: ' + [...loaded]);
 
     // 2. tempo from the quick row, remembered for this tune
     const base = +(await text('.tempo-now'));
@@ -39,7 +39,7 @@ const URL = process.env.SITE || 'http://127.0.0.1:8765/';
 
     // 3. count-in shown big, then gone
     await $('.in-role-q').selectOption('lead');
-    await button('▶ Play').click();
+    await button('Play').click();
     await $('.pl-cue.count').waitFor({ timeout: 30000 });
     assert.match(await text('.pl-cue'), /^[1-4]$/);
     await page.waitForFunction(() => document.querySelector('.pl-status')?.textContent.includes('Chorus'));
@@ -52,7 +52,7 @@ const URL = process.env.SITE || 'http://127.0.0.1:8765/';
     await page.keyboard.press('Shift+ArrowDown'); assert.equal(+(await text('.tempo-now')), t0 + 4);
     await page.keyboard.press('PageDown'); await button('Resume').waitFor();
     await page.keyboard.press('ArrowRight'); await button('Pause').waitFor();
-    await page.keyboard.press('PageUp'); await button('▶ Play').waitFor();
+    await page.keyboard.press('PageUp'); await button('Play').waitFor();
 
     // 5. a two-bar loop that speeds up each pass, and the tempo coming back at Stop
     await button('Setup').click();
@@ -60,7 +60,7 @@ const URL = process.env.SITE || 'http://127.0.0.1:8765/';
     await button('Score').click();
     await $('.bar[data-src="4"]').click(); await $('.bar[data-src="5"]').click({ modifiers: ['Shift'] });
     await button('Loop').click();
-    await button('▶ Play').click();
+    await button('Play').click();
     await page.waitForFunction(() => /Loop pass 3/.test(document.querySelector('.pl-status')?.textContent), null, { timeout: 30000 });
     assert.equal(+(await text('.tempo-now')), 316, 'two passes at +8');
     await button('Stop').click();
@@ -69,7 +69,7 @@ const URL = process.env.SITE || 'http://127.0.0.1:8765/';
 
     // 6. "Solos next" a bar before the melody drops out (3 choruses: head, solos, head)
     await button('Setup').click(); await $('.in-chor').selectOption('3'); await $('.in-tempo').fill('320'); await $('.in-tempo').press('Enter'); await button('Score').click();
-    await button('▶ Play').click();
+    await button('Play').click();
     await page.waitForFunction(() => document.querySelector('.pl-cue')?.textContent === 'Solos next', null, { timeout: 60000 });
     assert.match(await text('.pl-status'), /Chorus 1 of 3/);
 
@@ -82,7 +82,7 @@ const URL = process.env.SITE || 'http://127.0.0.1:8765/';
     const now = await $('.bar.now').boundingBox(), view = await $('.pl-view').boundingBox();
     assert.ok(now.height > h0 * 1.15, `stage bars are larger (${h0} -> ${now.height})`);
     assert.ok(Math.abs(now.y - view.y) < 12, 'current line at the top of the stage');
-    assert.ok(await $('.song-head').isHidden());
+    assert.ok(await $('.song-head h2').isHidden());
     await page.keyboard.press('s');
     assert.ok(!(await page.evaluate(() => document.body.classList.contains('stage'))));
     await button('Stop').click();
@@ -119,7 +119,7 @@ const URL = process.env.SITE || 'http://127.0.0.1:8765/';
     await $('#auto-next').check();
     await $('#my-list .ml-title').first().click();
     assert.equal(await text('.song-head h2'), 'Autumn Leaves');
-    await button('▶ Play').click();
+    await button('Play').click();
     await page.waitForFunction(() => document.querySelector('.song-head h2')?.textContent === 'Blue Bossa'
       && /Count-in|Chorus/.test(document.querySelector('.pl-status')?.textContent), null, { timeout: 120000 });
     await button('Stop').click();
@@ -129,7 +129,7 @@ const URL = process.env.SITE || 'http://127.0.0.1:8765/';
     await page.waitForFunction(async () => (await caches.keys()).length && (await (await caches.open((await caches.keys())[0])).keys()).length >= 15, null, { timeout: 60000 });
     await context.setOffline(true);
     await page.reload(); await $('#player .bar').first().waitFor({ timeout: 30000 });
-    await button('▶ Play').click();
+    await button('Play').click();
     await page.waitForFunction(() => document.querySelector('.pl-status')?.textContent.includes('Chorus'), null, { timeout: 30000 });
     await button('Stop').click();
     await context.setOffline(false);

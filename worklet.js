@@ -53,7 +53,8 @@ class JazzBand extends AudioWorkletProcessor {
       case 'loop': X.jbw_loop(d.from, d.to, d.kstep || 0); break;
       case 'leadmask': X.jbw_lead_mask(d.mask >>> 0); break;
       case 'leadsound': X.jbw_lead_sound(d.sound, d.level, d.oct); break;
-      case 'packs': this.port.postMessage({ t: 'packs', ok: [0, 1, 2, 3].map(i => X.jbw_pack_ok(i)) }); break;
+      case 'human': X.jbw_human?.(d.amount); break;
+      case 'packs': this.port.postMessage({ t: 'packs', ok: [0, 1, 2, 3, 5].map(i => X.jbw_pack_ok(i)) }); break;
     }
   }
   process(inputs, outputs) {

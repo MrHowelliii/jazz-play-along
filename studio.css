@@ -37,16 +37,50 @@ body.browsing #songs header{display:none}body.browsing #lib-strip,body.browsing 
 .takes{padding:0 12px 8px}.take{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:8px 0;border-bottom:1px solid var(--border);font:14px system-ui;color:var(--text)}.take audio{flex:1 1 240px;height:40px;min-width:0}.take a{color:var(--gold)}
 .takes-empty,.keys-help{padding:0 12px 12px;font:14px/1.5 system-ui;color:var(--muted)}.setup-sheet .pl-grid input[type=number]{width:90px}
 /* stage: only the chart, large, with the transport underneath */
-body.stage.playing-view #player{grid-template-rows:auto 0 minmax(0,1fr) auto;max-width:none;padding-inline:max(10px,env(safe-area-inset-left))}
-body.stage .song-head,body.stage .pl-tabs,body.stage .pl-transport label,body.stage .quick label,body.stage .btn-rec,body.stage .score-panel>small{display:none!important}
-body.stage .pl-transport{justify-content:center}body.stage .pl-status{font-size:15px}body.stage .quick{justify-content:flex-end;margin:0 0 4px}
-body.stage .chart{gap:.5rem}body.stage .chart .bar{height:clamp(104px,19svh,210px)}
+body.stage.playing-view #player{max-width:none;padding-inline:max(10px,env(safe-area-inset-left))}
+body.stage .song-head h2,body.stage .song-meta,body.stage .head-buttons,body.stage .pl-tabs,body.stage .quick label,body.stage .btn-rec,body.stage .btn-func,body.stage .score-panel>small{display:none!important}
+body.stage .pl-status{font-size:15px}body.stage .toolbar{justify-content:flex-end}
+body.stage .chart{gap:.5rem}
 body.stage .bar .chords{height:auto;top:6px}body.stage .bar .chords span{font-size:clamp(1.45rem,4.4vw,3rem);line-height:1.05}
-body.stage .bar .roll{top:46%;height:calc(54% - 8px)}body.stage .chart-row .sec{font-size:1.5rem;width:1.7rem}
+body.stage .bar .roll{top:46%;height:calc(54% - 8px)}body.stage .chart:not(.staffed) .bar{height:clamp(104px,19svh,210px)}body.stage .chart-row .sec{font-size:1.5rem;width:1.7rem}
 body.stage .bar.now{outline-width:3px}
-@media(max-height:480px){.quick{display:none}body.stage .quick{display:flex}}
+
 /* my list, on the songs screen */
 #my-list{max-width:680px;margin:1.2rem auto 0;padding:0 1rem}#my-list h2{font:normal 1.5rem Georgia,serif;color:var(--cream);margin-bottom:.4rem}
 #my-list .ml-row{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border)}#my-list .ml-title{flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #my-list button{min-height:44px;font:500 16px system-ui;border:1px solid var(--border);border-radius:10px;background:var(--card);color:var(--cream);padding:0 12px}#my-list .ml-small{width:44px;padding:0}
 #my-list label{display:flex;align-items:center;gap:8px;min-height:44px;color:var(--muted);font:14px system-ui}#my-list input{width:20px;height:20px;accent-color:var(--gold)}
+
+/* three rows: a compact head (title, then what the band is doing), the panel, the dock */
+body.playing-view #player{grid-template-rows:auto minmax(0,1fr) auto;gap:4px}
+.panel{grid-row:2}.dock{grid-row:3}
+.song-head .pl-status:empty{display:none}#player.has-status .song-meta{display:none}
+.song-head h2{font-size:clamp(20px,4.6vw,34px)}.song-head p{line-height:18px}
+.out-meter{float:right;font:12px system-ui;color:var(--muted);white-space:nowrap}
+/* one toolbar above the chart: practice controls, then view and loop */
+.toolbar{flex:none;display:flex;align-items:center;gap:6px;overflow-x:auto;margin:0 0 4px;scrollbar-width:none}.toolbar::-webkit-scrollbar{display:none}
+#player .toolbar .quick,#player .toolbar .pl-tabs{display:contents}.toolbar>*>*{flex-shrink:0}
+#player .btn-func[aria-pressed=true]{box-shadow:inset 0 -3px var(--gold);color:var(--gold)}#player .btn-func{font-family:Georgia,serif}
+/* transport symbols */
+.dock svg{width:26px;height:26px;fill:currentColor;display:block;margin:auto}#player .dock .pl-play svg{width:30px;height:30px}
+.dock{grid-template-columns:1.25fr 1fr repeat(3,minmax(0,1.1fr))}
+/* the melody on a staff */
+.chart.staffed .bar{height:var(--barh,110px)}.bar .staff{position:absolute;left:0;top:0;overflow:visible;pointer-events:none}
+.chart-row .rowhead{flex:none;background:#1b2933;overflow:visible}
+.staff .sl{stroke:#8fa3a5;stroke-width:1}.staff .stem{stroke:var(--cream);stroke-width:1.3;stroke-linecap:round}.staff .beam{stroke:var(--cream)}
+.staff .nh,.staff .flag{fill:var(--cream)}.staff .nho{fill:none;stroke:var(--cream)}.staff .rest{fill:none;stroke:var(--cream);stroke-width:1.6;stroke-linejoin:round}
+.staff .clef{fill:none;stroke:var(--cream);stroke-width:1.5;stroke-linecap:round}.staff .tie{fill:none;stroke:var(--cream);stroke-width:1.3}
+.staff .acc,.staff .tup{fill:var(--cream);font-family:"Noto Music","Segoe UI Symbol","Apple Symbols",system-ui,serif}.staff .tup{font-style:italic;font-family:Georgia,serif}
+.bar.now .staff .nh,.bar.now .staff .flag{fill:var(--gold)}.bar.now .staff .stem,.bar.now .staff .beam,.bar.now .staff .nho,.bar.now .staff .tie{stroke:var(--gold)}
+.chart.staffed .bar .chords{z-index:1}.chart.staffed .bar .chords span{text-shadow:0 0 4px #1b2933,0 0 4px #1b2933}
+/* phones: every pixel to the chart */
+@media(max-width:640px){
+  body.playing-view #player{padding:max(4px,env(safe-area-inset-top)) max(6px,env(safe-area-inset-right)) max(4px,env(safe-area-inset-bottom)) max(6px,env(safe-area-inset-left));gap:3px}
+  #player .song-head h2{font-size:19px}.song-head p{font-size:12px;line-height:15px}
+  #player .song-head button{min-height:36px;padding:0 10px;font-size:14px}#player .pl-fav{width:36px;padding:0;font-size:19px}
+  #player .toolbar button,#player .toolbar select{min-height:38px;font-size:14px;padding:0 9px}#player .tempo-step button{width:36px;padding:0}
+  .toolbar{margin-bottom:2px}.panel{padding:3px 0;border-top:0}
+  .dock button{min-height:46px!important}.chart{gap:.25rem}.chart.flow .chart-row .sec{width:.9rem;font-size:.85rem}
+  .follow-control{min-height:38px}
+}
+@media(max-height:480px){body.playing-view #player{grid-template-rows:auto minmax(0,1fr) auto;gap:2px}#player .toolbar .quick label{display:none}.dock button{min-height:40px!important}}

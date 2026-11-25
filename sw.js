@@ -1,10 +1,10 @@
 // Service worker: the app, the song library and the instruments are kept on the device, so Jazz Play-Along opens
 // from the home screen and plays without a connection. The book PDFs (the "Original page" view) are large and are
 // not kept: that view needs a connection.
-const VERSION = 'play-along-v1';
-const SHELL = ['./', 'index.html', 'player.js', 'songform.js', 'studio.css', 'app/player.css', 'manifest.webmanifest',
+const VERSION = 'play-along-v2';
+const SHELL = ['./', 'index.html', 'player.js', 'notation.js', 'songform.js', 'studio.css', 'app/player.css', 'manifest.webmanifest',
   'icons/icon-192.png', 'songs.json', 'books.json', 'leads/462jazz.json', 'engine/worklet.js', 'engine/jazzband.wasm',
-  'engine/packs/jbdrums.jbp', 'engine/packs/jbbass.jbp', 'engine/packs/jbpiano.jbp', 'engine/packs/jbguitar.jbp'];
+  'engine/packs/jbdrums.jbp', 'engine/packs/jbbass.jbp', 'engine/packs/jbpiano.jbp', 'engine/packs/jbguitar.jbp', 'engine/packs/jblead.jbp'];
 const BINARY = /\.(wasm|jbp|png|woff2?)$|\/vendor\//;        // never change under the same name within a version
 
 self.addEventListener('install', (e) => {

@@ -1,6 +1,7 @@
 // player.js - the play-along player: the Jazz Band engine (WebAssembly, in an AudioWorklet) plays the chords with a
 // band and the melody with a lead voice, from lead sheets parsed out of the fake-book PDFs (leads/*.json).
 import { prepare, transposeSym, prettySym, KEY_NAMES, keyTonic, normTitle } from './songform.js';
+import { staffBar, rowHead, romanize, transposeKey } from './notation.js';
 
 const INST = ['Drums', 'Bass', 'Piano', 'Guitar'];
 const PLAYERS = [
@@ -15,7 +16,14 @@ const PLAYERS = [
 ];
 const LVL_DEFAULT = [23593, 26214, 20971, 11796];       // the plugin's defaults (Q15) for drums, bass, piano, guitar
 const LEAD_DEFAULT = 24000;
-const PACKS = ['jbdrums', 'jbbass', 'jbpiano', 'jbguitar'];
+const PACKS = ['jbdrums', 'jbbass', 'jbpiano', 'jbguitar', 'jblead'];   // jblead: the recorded alto sax (optional)
+const LEADS = [[4, 'Alto sax'], [0, 'Synth horn'], [1, 'Piano'], [2, 'Guitar'], [3, 'Vibes']];
+const ICON = {
+  play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>',
+  pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4.5h4.5v15H6zM13.5 4.5H18v15h-4.5z"/></svg>',
+  stop: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 5.5h13v13h-13z"/></svg>',
+  wait: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="2.2"/><circle cx="12" cy="12" r="2.2"/><circle cx="19" cy="12" r="2.2"/></svg>',
+};
 const ROLES = [['none', 'Just listen'], ['lead', 'Melody'], ['piano', 'Piano'], ['guitar', 'Guitar'], ['bass', 'Bass'], ['drums', 'Drums']];
 const HORNS = [['C', 0, 'Concert'], ['Bb', 2, 'B♭ instrument'], ['Eb', 9, 'E♭ instrument'], ['F', 7, 'F instrument']];
 
@@ -27,7 +35,7 @@ const store = {
 };
 
 // ---------------------------------------------------------------------------------------------- the engine
-let ctx = null, node = null, gain = null, room = null, engineReady = null, packsOk = [0, 0, 0, 0];
+let ctx = null, node = null, gain = null, room = null, engineReady = null, packsOk = [0, 0, 0, 0, 0];
 let onPos = () => {}, onAudioState = () => {};
 
 // The engine and its instruments start downloading when the page opens, so the first Play does not wait for them.
@@ -125,15 +133,15 @@ async function ensureEngine(status) {
     }));
     // the engine checks each pack (a checksum, a few KB per audio block): wait for it, at most a few seconds
     await ctx.resume();
-    for (let i = 0; i < 40 && packsOk.reduce((a, b) => a + b, 0) < got; i++) {
+    for (let i = 0; i < 80 && packsOk.reduce((a, b) => a + b, 0) < got; i++) {
       node.port.postMessage({ t: 'packs' });
       await new Promise(r => setTimeout(r, 100));
     }
-    if (packsOk.some(ok => !ok)) throw new Error('Instrument samples failed to load. Tap Play to retry.');
+    if (packsOk.slice(0, 4).some(ok => !ok)) throw new Error('Instrument samples failed to load. Tap Play to retry.');
     status('');
   })().catch(async error => {
     await ctx?.close().catch(() => {});
-    engineReady = null; ctx = null; node = null; room = null; assets = null; packsOk = [0, 0, 0, 0];
+    engineReady = null; ctx = null; node = null; room = null; assets = null; packsOk = [0, 0, 0, 0, 0];
     throw error;
   });
   return engineReady;
@@ -151,8 +159,9 @@ export class Player {
     this.s = Object.assign({
       tempo: null, key: 0, feel: 0, choruses: 3, intro: 0, ending: 0, role: 'none', guide: false, leadEvery: false,
       players: [0, 0, 0, 0], levels: [100, 100, 100, 100], lead: 100, leadSound: 0, leadOct: 0, horn: 'C', view: 'chart',
-      room: 18, latency: 0, passStep: 0,
+      room: 18, latency: 0, passStep: 0, human: 60, chordMode: 'name', notes: 'staff',
     }, store.get('settings', {}));
+    if (!this.s.sax) { this.s.sax = 1; this.s.leadSound = 4; }      // once: the recorded sax becomes the lead
     this.s.tempo = null; this.s.key = 0;
     this.takes = [];
     preload();
@@ -252,6 +261,7 @@ export class Player {
     s.players.forEach((who, inst) => post({ t: 'player', inst, who }));
     this.sendLevels();
     post({ t: 'form', choruses: s.choruses, ending: s.ending, intro: s.intro, turn: 0 });
+    post({ t: 'human', amount: s.human });
     post({ t: 'leadmask', mask: this.leadMask() });
     this.sendLoop();
   }
@@ -260,7 +270,7 @@ export class Player {
     LVL_DEFAULT.forEach((d, i) => post({ t: 'level', inst: i, value: i === muted ? 1 : Math.min(32767, Math.round(d * s.levels[i] / 100)) }));
     let lead = Math.round(LEAD_DEFAULT * s.lead / 100);
     if (s.role === 'lead') lead = s.guide ? Math.round(lead * 0.22) : 0;
-    post({ t: 'leadsound', sound: s.leadSound, level: lead, oct: s.leadOct });
+    post({ t: 'leadsound', sound: s.leadSound === 4 && !packsOk[4] ? 0 : s.leadSound, level: lead, oct: s.leadOct });
   }
   leadMask() {
     const n = this.s.choruses;
@@ -402,11 +412,12 @@ export class Player {
       <audio controls preload="metadata" src="${t.url}"></audio><a download="${esc(t.name)}" href="${t.url}">Save file</a></div>`).join('')
       : '<p class="takes-empty">No takes yet. Press ● Rec, play along, then press it again: your microphone and the band are recorded together. Takes stay until you close the page; use Save file to keep one.</p>';
   }
-  status(m) { const el = $('.pl-status', this.root); if (el) el.textContent = m; }
+  status(m) { const el = $('.pl-status', this.root); if (el) el.textContent = m; this.root.classList.toggle('has-status', !!m); }
   updateTransport() {
     const b = $('.pl-play', this.root);
     if (!b) return;
-    b.textContent = this.starting ? 'Loading…' : this.paused ? 'Resume' : this.state.playing ? 'Pause' : '▶ Play';
+    const [icon, name] = this.starting ? ['wait', 'Loading'] : this.paused ? ['play', 'Resume'] : this.state.playing ? ['pause', 'Pause'] : ['play', 'Play'];
+    if (b.getAttribute('aria-label') !== name) { b.innerHTML = ICON[icon]; b.setAttribute('aria-label', name); b.title = name; }
     b.disabled = !!this.starting;
     $('.pl-stop', this.root).disabled = !this.state.playing;
     b.classList.toggle('stop', this.state.playing);
@@ -422,26 +433,22 @@ export class Player {
 
     this.root.innerHTML = `
       <div class="song-head">
-        <div><h2>${esc(song.title)}</h2><p>${esc(song.composer || book.title)} · ${song.time[0]}/${song.time[1]} · ${song.bars.length} bars</p></div>
+        <div><h2>${esc(song.title)}</h2><p class="song-meta">${esc(song.composer || book.title)} · ${song.time[0]}/${song.time[1]} · ${song.bars.length} bars</p><p class="pl-status" role="status"></p></div>
         <span class="head-buttons"><button class="pl-fav" type="button" aria-pressed="false" aria-label="Add to my list" title="Add to my list">☆</button>
         <button class="pl-back" type="button">Songs</button></span>
       </div>
-      <div class="pl-transport">
-        <span class="pl-status"></span>
-        <label>Output <meter class="pl-output" aria-label="Audio output level" min="-90" max="0" value="-90"></meter></label>
-      </div>
       <section class="mix-sheet panel" aria-label="Band mixer" hidden>
-        <h3>Band mixer</h3>
+        <h3>Band mixer <label class="out-meter">Output <meter class="pl-output" aria-label="Audio output level" min="-90" max="0" value="-90"></meter></label></h3>
         <section class="channel room-channel"><h4>Room</h4><span class="room-note">Reverb around the band</span>
           <label class="fader"><input type="range" aria-label="Room level" class="in-room" min="0" max="60" value="${s.room}"><output>${s.room}%</output></label></section>
         ${[...INST, 'Melody'].map((name,i) => {
           const lead = i === INST.length;
-          const choices = lead ? ['Horn', 'Piano', 'Guitar', 'Vibes'] : PLAYERS[i];
+          const choices = lead ? LEADS : PLAYERS[i].map((n, k) => [k, n]);
           const selected = lead ? s.leadSound : s.players[i];
           const level = lead ? s.lead : s.levels[i];
           return `<section class="channel"><h4>${name}</h4>
             <div class="picker"><button type="button" data-step="-1" aria-label="Previous ${name} sound">‹</button>
-            <select class="${lead ? 'in-leadsound' : 'in-player'}" data-i="${i}" aria-label="${name} player">${choices.map((n,k) => `<option value="${k}" ${selected===k?'selected':''}>${esc(n)}</option>`).join('')}</select>
+            <select class="${lead ? 'in-leadsound' : 'in-player'}" data-i="${i}" aria-label="${name} player">${choices.map(([k, n]) => `<option value="${k}" ${selected===k?'selected':''}>${esc(n)}</option>`).join('')}</select>
             <button type="button" data-step="1" aria-label="Next ${name} sound">›</button></div>
             <label class="fader"><input type="range" aria-label="${name} level" class="in-level" data-i="${lead?'lead':i}" min="0" max="150" value="${level}"><output>${level}%</output></label>
           </section>`;
@@ -467,6 +474,9 @@ export class Player {
           <label>Count-in<select class="in-intro"><option value="0">One bar count</option><option value="1">Last 4 bars</option><option value="2">Turnaround intro</option></select></label>
           <label>Ending<select class="in-ending"><option value="0">Final chord</option><option value="1">Tag (3 times)</option></select></label>
           <label>Chords for<select class="in-horn">${HORNS.map(([v, , t]) => `<option value="${v}">${t}</option>`).join('')}</select></label>
+          <label title="How human the band plays: placement around the beat and note-to-note dynamics">Band feel<select class="in-human"><option value="0">Exact (on the grid)</option><option value="35">Tight</option><option value="60">Natural</option><option value="100">Loose</option></select></label>
+          <label>Chords shown as<select class="in-chordmode"><option value="name">Names (Dm7 G7)</option><option value="func">Functions (ii7 V7)</option></select></label>
+          <label>Melody shown as<select class="in-notes"><option value="staff">Notes on a staff</option><option value="roll">Outline</option></select></label>
           <label title="Each time a loop comes round it gets a little faster. Stop brings the tempo back.">Loop speed-up<select class="in-pass"><option value="0">Same tempo each pass</option><option value="2">+2 BPM each pass</option><option value="4">+4 BPM each pass</option><option value="8">+8 BPM each pass</option></select></label>
           <label title="Bluetooth speakers and headphones play late. Raise this until the moving bar matches what you hear.">Speaker delay (ms)<input type="number" class="in-latency" min="0" max="500" step="10" value="${s.latency}" inputmode="numeric"></label>
         </div>
@@ -475,22 +485,23 @@ export class Player {
         <p class="keys-help">Space, → or Page Down: play / pause · ← or Page Up: stop · ↑ ↓: tempo (Shift: by 1) · L: loop · S: stage view · R: record. A Bluetooth page-turner pedal works as play / pause and stop.</p>
         </section>
       <section class="score-panel panel">${song.problems?.length ? '<small>Some measures may be misread. Check the original page.</small>' : ''}
-      <div class="quick" aria-label="Practice controls">
+      <div class="toolbar"><div class="quick" aria-label="Practice controls">
         <label>You play <select class="in-role-q" aria-label="You play">${ROLES.map(([v, t]) => `<option value="${v}" ${s.role === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
         <span class="tempo-step"><button type="button" class="tempo-down" aria-label="Slower">−</button><output class="tempo-now" aria-label="Tempo">${s.tempo}</output><button type="button" class="tempo-up" aria-label="Faster">+</button></span>
-        <button type="button" class="btn-rec" aria-pressed="false" title="Record yourself with the band">● Rec</button>
+        <button type="button" class="btn-func" aria-pressed="false" title="Show chords as functions (ii7 V7 I) or as names" aria-label="Chord functions">ii–V</button>
         <button type="button" class="btn-stage" aria-pressed="false" title="Large chart for a music stand">Stage</button>
+        <button type="button" class="btn-rec" aria-pressed="false" title="Record yourself with the band">● Rec</button>
       </div>
       <div class="pl-tabs">
         <span class="pl-seg seg-view"><button type="button" data-v="chart">Chart</button><button type="button" data-v="page">Original page</button></span>
         <button class="pl-btn btn-loop" type="button" title="Loop the bars you selected">Loop</button>
         <button class="pl-btn btn-clear" type="button">Clear selection</button>
         <label class="follow-control"><input type="checkbox" class="in-follow" checked> Follow score</label><span class="pl-hint">Tap a bar to start there · to loop: tap the first bar, Loop, then the last bar (or Shift-click) · Space plays / stops</span>
-      </div>
+      </div></div>
       <div class="pl-stagewrap"><div class="pl-view"></div><div class="pl-cue" hidden aria-live="polite"></div></div></section>
       <nav class="dock" aria-label="Playback controls">
-        <button class="pl-play" type="button">▶ Play</button>
-        <button type="button" class="pl-stop" disabled>Stop</button>
+        <button class="pl-play" type="button" aria-label="Play" title="Play">${ICON.play}</button>
+        <button type="button" class="pl-stop" aria-label="Stop" title="Stop" disabled>${ICON.stop}</button>
         <button type="button" data-panel="score" aria-pressed="true">Score</button>
         <button type="button" data-panel="mix" aria-pressed="false">Mixer</button>
         <button type="button" data-panel="setup" aria-pressed="false">Setup</button>
@@ -526,6 +537,7 @@ export class Player {
     $('.tempo-down', r).onclick = () => { setTempo(s.tempo - 5); if (!this.state.playing) this.reprep(); };
     $('.tempo-up', r).onclick = () => { setTempo(s.tempo + 5); if (!this.state.playing) this.reprep(); };
     $('.in-key', r).onchange = (e) => { s.key = +e.target.value; post({ t: 'transpose', semis: s.key }); this.saveTune(); this.drawChart(); };
+    this.roman = null;
     $('.in-feel', r).onchange = (e) => { s.feel = +e.target.value; this.saveTune(); this.reprep(); };
     const setRole = (v) => {
       s.role = v; this.save();
@@ -537,6 +549,18 @@ export class Player {
     $('.seg-role', r).onclick = (e) => { const b = e.target.closest('button'); if (b) setRole(b.dataset.v); };
     $('.in-role-q', r).onchange = (e) => setRole(e.target.value);
     $('.btn-rec', r).onclick = () => this.toggleRec();
+    const setMode = (v) => {
+      s.chordMode = v; this.save();
+      $('.in-chordmode', r).value = v; $('.btn-func', r).setAttribute('aria-pressed', String(v === 'func'));
+      this.drawChart(); if (this.state.playing && this.lastSrc != null) this.highlight(this.lastSrc, this.lastBeat);
+    };
+    $('.in-chordmode', r).value = s.chordMode; $('.btn-func', r).setAttribute('aria-pressed', String(s.chordMode === 'func'));
+    $('.in-chordmode', r).onchange = (e) => setMode(e.target.value);
+    $('.btn-func', r).onclick = () => setMode(s.chordMode === 'func' ? 'name' : 'func');
+    $('.in-notes', r).value = s.notes;
+    $('.in-notes', r).onchange = (e) => { s.notes = e.target.value; this.save(); this.drawChart(); };
+    $('.in-human', r).value = s.human;
+    $('.in-human', r).onchange = (e) => { s.human = +e.target.value; this.save(); post({ t: 'human', amount: s.human }); };
     $('.btn-stage', r).onclick = () => this.setStage(!this.stage);
     $('.in-pass', r).value = s.passStep;
     $('.in-pass', r).onchange = (e) => { s.passStep = +e.target.value; this.save(); };
@@ -599,15 +623,36 @@ export class Player {
     lb.disabled = !this.loop && !this.sel;
     if (this.s.view === 'page') { this.drawPages(view); return; }
     const p = this.prep, song = this.song, barLen = p.barLen;
+    const staff = this.s.notes !== 'roll', func = this.s.chordMode === 'func';
+    if (func && !this.roman) this.roman = romanize(song.bars, song.key || 0);
+    // the staff: bar height, and the written pitch for the reader (key change and transposing instrument)
+    const barH = this.stage ? Math.max(120, Math.min(230, Math.round(innerHeight * 0.21))) : (view.clientWidth || innerWidth) < 700 ? 104 : 116;
+    const horn = HORNS.find(x => x[0] === this.s.horn) || HORNS[0];
+    let shift = this.s.key + horn[1];
+    if (staff) {                                           // keep the transposed line on the staff
+      let sum = 0, cnt = 0;
+      for (const b of song.bars) for (let k = 2; k < b.n.length; k += 3) if (b.n[k]) { sum += (b.n[k] & 127) + shift; cnt++; }
+      while (cnt && sum / cnt > 78) { shift -= 12; sum -= 12 * cnt; }
+      while (cnt && sum / cnt < 60) { shift += 12; sum += 12 * cnt; }
+    }
+    const keyAt = []; { let k = song.key || 0; song.bars.forEach((b, i) => { if (b.k !== undefined) k = b.k; keyAt[i] = transposeKey(k, this.s.key + horn[1]); }); }
     // pitch range for the little melody rolls
     let lo = 127, hi = 0;
     for (const b of song.bars) for (let k = 2; k < b.n.length; k += 3) if (b.n[k]) { const q = b.n[k] & 127; lo = Math.min(lo, q); hi = Math.max(hi, q); }
     if (lo > hi) { lo = 60; hi = 72; }
     const span = Math.max(8, hi - lo + 1);
-    const barHTML = (b, i, cls, len) => {
+    const barHTML = (b, i, cls, len, k) => {
       const L = len || barLen;
-      const chords = b.c.map(c => `<span style="left:${(c[0] / L * 100).toFixed(1)}%">${esc(this.chordLabel(c[1]))}</span>`).join('');
+      const chords = b.c.map((c, ci) => `<span style="left:${(c[0] / L * 100).toFixed(1)}%">${esc(func ? this.roman[k][ci] : this.chordLabel(c[1]))}</span>`).join('');
       let rects = '';
+      if (staff) {
+        const nx = song.bars[k + 1], last = b.n.length ? b.n[b.n.length - 1] & 127 : 0;
+        const tieOut = !!(nx && nx.n.length && nx.n[2] >= 128 && (nx.n[2] & 127) === last && last);
+        const tags = [b.sg && b.sg.includes('segno') ? '𝄋' : '', b.sg && b.sg.includes('coda') ? '𝄌' : '', b.ds ? 'D.S.' : '', b.dc ? 'D.C.' : '', b.fn ? 'Fine' : ''].filter(Boolean).join(' ');
+        const volta = b.e ? `<div class="volta">${b.e.join(', ')}.</div>` : '';
+        const classes = ['bar', cls, b.rs ? 'rs' : '', b.re ? 're' : '', b.db ? 'db' : ''].filter(Boolean).join(' ');
+        return `<div class="${classes}" data-src="${i}">${volta}${staffBar(b.n, L, keyAt[k], shift, barH, tieOut, rowKey)}<div class="chords">${chords}</div>${tags ? `<span class="tag">${tags}</span>` : ''}</div>`;
+      }
       for (let k = 0; k < b.n.length; k += 3) {
         const t = b.n[k], d = b.n[k + 1], q = b.n[k + 2];
         if (!q) continue;
@@ -641,14 +686,15 @@ export class Player {
         cur.push(k);
       });
     }
-    let html = '<div class="chart">';
+    let html = '<div class="chart">', rowKey = 0;
     for (const row of rows) {
       const first = row.find(k => k >= bodyStart) - bodyStart;
       const sec = first >= 0 && p.section[first] ? String.fromCharCode(p.section[first]) : '';
-      html += `<div class="chart-row"><span class="sec">${sec}</span>`;
+      rowKey = keyAt[row[0]];
+      html += `<div class="chart-row"><span class="sec">${sec}</span>${staff ? rowHead(rowKey, barH).html : ''}`;
       for (const k of row) {
-        if (k < bodyStart) html += barHTML(song.bars[k], 'pickup', 'pickup', song.bars[k].len || barLen);
-        else html += barHTML(song.bars[k], k - bodyStart, '');
+        if (k < bodyStart) html += barHTML(song.bars[k], 'pickup', 'pickup', song.bars[k].len || barLen, k);
+        else html += barHTML(song.bars[k], k - bodyStart, '', 0, k);
       }
       if (per) for (let f = row.filter(k => k >= bodyStart).length; f < per; f++) html += '<div class="bar filler" aria-hidden="true"></div>';
       html += '</div>';
@@ -656,6 +702,8 @@ export class Player {
     html += '</div>';
     view.innerHTML = html;
     view.querySelector('.chart').classList.toggle('flow', !!per);
+    view.querySelector('.chart').classList.toggle('staffed', staff);
+    view.querySelector('.chart').style.setProperty('--barh', barH + 'px');
     view.querySelectorAll('.bar:not(.filler)').forEach(el => el.onclick = (e) => this.barClick(el.dataset.src, e.shiftKey));
     this.markSelection();
     this.fitChords();

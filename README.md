@@ -16,6 +16,9 @@ Jazz Band engine from [jazzband-op1r](https://github.com/MrHowelliii/jazzband-op
 | **Loops** | Tap a bar, Loop, tap the last bar. Setup › Loop speed-up makes each pass 2, 4 or 8 BPM faster; Stop brings the tempo back |
 | **Record** | ● Rec records the band and your microphone together (the band is delayed by the output latency so they line up); takes are in Setup, with Save file |
 | **My list** | ☆ adds the tune to your list on the Songs screen: reorder it, and optionally play it in order (after a tune's ending the next one starts) |
+| **Chart** | The melody is drawn on a staff (clef, key signature, accidentals, beams, ties, triplets), transposed with the key and with "Chords for" B♭ / E♭ / F instruments. Setup › Melody shown as: staff or outline |
+| **Chord functions** | The ii–V button (or Setup) shows chords as roman numerals: relative to the major key of the signature, or its relative minor when the tune lives there; secondary dominants as V7/x, their ii chords as ii/x, half-step resolutions as subV7 |
+| **Sound** | 16-bit sample packs (about 27 MB, kept on the device after the first visit), a recorded alto sax for the melody (Mixer › Melody; the synth horn, piano, guitar and vibes remain), and Setup › Band feel: how human the placement and dynamics are (Exact, Tight, Natural, Loose) |
 | **Room** | Mixer › Room: a small-room reverb around the band (0 turns it off) |
 | **Speaker delay** | Setup: for Bluetooth speakers, delays the moving bar (and aligns recordings) by the milliseconds you set |
 | **Interruptions** | A call or a route change pauses the band at the beat; Resume carries on from there |
