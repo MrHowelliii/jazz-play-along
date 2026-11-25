@@ -43,6 +43,11 @@ class JazzBand extends AudioWorkletProcessor {
       case 'pause': this.paused = true; break;
       case 'resume': this.paused = false; break;
       case 'stop': this.paused = false; X.jbw_stop(); break;
+      case 'seek':
+        X.jbw_seek(d.bar);
+        this.last = '';
+        this.reportPosition();
+        break;
       case 'finish': X.jbw_finish(); break;
       case 'tempo': X.jbw_tempo(d.bpm); break;
       case 'feel': X.jbw_feel(d.feel); break;
@@ -65,6 +70,11 @@ class JazzBand extends AudioWorkletProcessor {
     const buf = X.memory.buffer;
     out[0].set(new Float32Array(buf, X.jbw_out_l(), 128));
     if (out[1]) out[1].set(new Float32Array(buf, X.jbw_out_r(), 128));
+    this.reportPosition();
+    return true;
+  }
+  reportPosition() {
+    const X = this.X;
     const st = X.jbw_state(), bar = X.jbw_bar(), shift = X.jbw_shift();
     const key = st + ':' + bar + ':' + shift;
     if (key !== this.last) {
@@ -72,7 +82,6 @@ class JazzBand extends AudioWorkletProcessor {
       this.port.postMessage({ t: 'pos', state: st & 15, kind: (st >> 4) & 15, beat: (st >> 8) & 15, chorus: (st >> 16) & 255,
                               bar, shift, time: currentTime });
     }
-    return true;
   }
 }
 registerProcessor('jazzband', JazzBand);

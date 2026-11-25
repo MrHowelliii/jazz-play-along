@@ -13,6 +13,20 @@ const PLAYERS = [
   ['Freddie Green', 'Jim Hall', 'Wes Montgomery', 'Kenny Burrell', 'Django Reinhardt', 'Grant Green', 'Herb Ellis', 'Barney Kessel',
    'Charlie Christian', 'João Gilberto (regular guitar here)'],
 ];
+const STYLE_NOTES = [
+  ['Steady ride cymbal with light comping.', 'Driving snare chatter with a rim accent on four.', 'Rolling triplets carry across the bar line.', 'Broken time with wide spaces between hits.', 'Press rolls lead into strong accents.', 'Hi-hat on every beat with quick bursts around the kit.', 'Crisp snare snaps interrupt the ride pattern.', 'A buoyant ride pulse with a light touch.', 'Hi-hat time with a Basie-style swing.', 'A wash of ride cymbal answered by the toms.', 'Melodic tom figures with hi-hat on two and four.', 'Brazilian shaker, conga and surdo patterns.'],
+  ['A classic quarter-note walking line.', 'Roots and fifths give the band a strong forward push.', 'Chromatic walking lines across a wide register.', 'Conversational triplets leave space for the melody.', 'Blues riffs, pedal tones and big accents.', 'A deep walking pulse with roots on one and three.', 'Simple roots with space between phrases.', 'Pedal points and double stops.', 'An even four-beat walk through chord tones.', 'Melodic bebop lines with pickups into the next bar.'],
+  ['Rootless chord voicings leave the bass room underneath.', 'Short chord stabs on the offbeats after two and four.', 'Chords built in fourths over roots and fifths.', 'Sparse, high-register chords arrive in unexpected places.', 'Angular chords with displaced accents.', 'Bouncy, bluesy chords anticipate the beat.', 'Spare high-register accents leave the soloist room.', 'Vamps and block chords alternate with space.', 'Funky left-hand punches drive the rhythm.', 'The left hand strums four beats to the bar.'],
+  ['Short rhythm chords mark all four beats.', 'Light, lyrical chords in the upper register.', 'Punchy chord stabs alternate with octave fills.', 'Bluesy Charleston rhythms with sliding chords.', 'Short, accented la pompe rhythm chords.', 'Bluesy stabs and repeated-note riffs.', 'Four-beat swing with sliding chords.', 'Chord melody with a moving top voice.', 'Swing-era rhythm chords and horn-like riffs.', 'Bossa nova batida with a thumbed bass line.'],
+];
+const LEAD_VOICES = [
+  ['Synth horn', 'A synthesized horn with legato and vibrato.'],
+  ['Grand piano', 'Alexander Holm’s sampled Yamaha C5 grand piano.'],
+  ['Archtop guitar', 'A sampled archtop combining pickup and microphone.'],
+  ['Synth vibes', 'A synthesized vibraphone with ringing overtones.'],
+  ['Muted trumpet', 'A recorded trumpet played with a Harmon mute.'],
+  ['Upright bass', 'A sampled 1958 Otto Rubner double bass, played pizzicato.'],
+];
 const LVL_DEFAULT = [23593, 26214, 20971, 11796];       // the plugin's defaults (Q15) for drums, bass, piano, guitar
 const LEAD_DEFAULT = 24000;
 const PACKS = ['jbdrums', 'jbbass', 'jbpiano', 'jbguitar'];
@@ -38,7 +52,7 @@ async function ensureEngine(status) {
     } catch { /* Some browsers manage the audio route themselves. */ }
     ctx = new AudioContext({ sampleRate: 44100, latencyHint: 'interactive' });
     await ctx.resume();
-    await ctx.audioWorklet.addModule('engine/worklet.js');
+    await ctx.audioWorklet.addModule('engine/worklet.js?v=score2');
     node = new AudioWorkletNode(ctx, 'jazzband', { numberOfInputs: 0, outputChannelCount: [2] });
     gain = ctx.createGain(); gain.gain.value = 0.9;
     node.connect(gain);
@@ -67,7 +81,7 @@ async function ensureEngine(status) {
         else if (d.t === 'packs') packsOk = d.ok;
       };
     });
-    const wasm = await (await fetch('engine/jazzband.wasm')).arrayBuffer();
+    const wasm = await (await fetch('engine/jazzband.wasm?v=score2')).arrayBuffer();
     node.port.postMessage({ t: 'wasm', bytes: wasm }, [wasm]);
     await ready;
     let got = 0;
@@ -105,8 +119,13 @@ export class Player {
     this.startSrc = -1; this.loop = null;
     this.s = Object.assign({
       tempo: null, key: 0, feel: 0, choruses: 3, intro: 0, ending: 0, role: 'none', guide: false, leadEvery: false,
-      players: [0, 0, 0, 0], levels: [100, 100, 100, 100], lead: 100, leadSound: 0, leadOct: 0, horn: 'C', view: 'chart',
+      players: [0, 0, 0, 0], levels: [100, 100, 100, 100], lead: 100, leadSound: 4, leadOct: 0, horn: 'C', view: 'chart',
     }, store.get('settings', {}));
+    if (!this.s.recordedMelody) {
+      if (this.s.leadSound === 0) this.s.leadSound = 4;
+      this.s.recordedMelody = true;
+      this.save();
+    }
     this.s.tempo = null; this.s.key = 0;
     onPos = (d) => this.position(d);
     let rt = 0;
@@ -124,7 +143,7 @@ export class Player {
     this.starting = false;
     this.song = song;
     this.s.tempo = song.tempo || defaultTempo(song);
-    this.s.key = 0; this.startSrc = -1; this.loop = null;
+    this.s.key = 0; this.startSrc = -1; this.loop = null; this.sel = null; this.picking = false;
     this.s.feel = song.feel ?? guessFeel(song);
     document.body.classList.add('playing-view');        // visible first: the chart lays out by its width
     this.render();
@@ -221,7 +240,8 @@ export class Player {
     if (!this.state.playing) { this.highlight(-1); this.status(''); return; }
     const src = d.state === 2 ? (this.prep.pickup ? 'pickup' : -1) : d.kind === 0 ? this.prep.form[d.bar] : -2;
     const delay = Math.max(0, ((ctx.outputLatency || 0) + (ctx.baseLatency || 0)) * 1000);
-    setTimeout(() => this.highlight(src, d.beat), delay);
+    clearTimeout(this.highlightTimer);
+    this.highlightTimer = setTimeout(() => this.highlight(src, d.beat), delay);
     const n = this.s.choruses;
     const what = d.state === 2 ? 'Count-in' : d.kind === 5 ? 'Intro' : d.kind === 0 ? `Chorus ${d.chorus}${n ? ' of ' + n : ''}` : 'Ending';
     const solo = d.kind === 0 && !((this.leadMask() >>> (Math.min(32, d.chorus) - 1)) & 1);
@@ -258,20 +278,19 @@ export class Player {
         <h3>Band mixer</h3>
         ${[...INST, 'Melody'].map((name,i) => {
           const lead = i === INST.length;
-          const choices = lead ? ['Horn', 'Piano', 'Guitar', 'Vibes'] : PLAYERS[i];
+          const choices = lead ? LEAD_VOICES.map(([label]) => label) : PLAYERS[i];
           const selected = lead ? s.leadSound : s.players[i];
           const level = lead ? s.lead : s.levels[i];
           return `<section class="channel"><h4>${name}</h4>
             <div class="picker"><button type="button" data-step="-1" aria-label="Previous ${name} sound">‹</button>
-            <select class="${lead ? 'in-leadsound' : 'in-player'}" data-i="${i}" aria-label="${name} player">${choices.map((n,k) => `<option value="${k}" ${selected===k?'selected':''}>${esc(n)}</option>`).join('')}</select>
+            <select class="${lead ? 'in-leadsound' : 'in-player'}" data-i="${i}" aria-label="${name} player" aria-describedby="voice-note-${i}">${choices.map((n,k) => `<option value="${k}" ${selected===k?'selected':''}>${esc(n)}</option>`).join('')}</select>
             <button type="button" data-step="1" aria-label="Next ${name} sound">›</button></div>
+            <p class="player-note" id="voice-note-${i}">${esc(lead ? LEAD_VOICES[selected][1] : STYLE_NOTES[i][selected])}</p>
             <label class="fader"><input type="range" aria-label="${name} level" class="in-level" data-i="${lead?'lead':i}" min="0" max="150" value="${level}"><output>${level}%</output></label>
           </section>`;
         }).join('')}
       </section>
       <section class="setup-sheet panel" aria-label="Song settings" hidden><h3>Song settings</h3>
-        <label class="lbl-tempo">Tempo <input type="number" class="in-tempo" min="40" max="320" value="${s.tempo}" inputmode="numeric">
-          <input type="range" class="in-tempo-r" min="40" max="320" value="${s.tempo}" aria-label="Tempo"></label>
       <div class="pl-bar">
         <button type="button" class="pl-btn pl-finish" disabled>Finish after chorus</button>
         <label>Key <select class="in-key">${keyOpts.join('')}</select></label>
@@ -294,9 +313,13 @@ export class Player {
         <span class="pl-seg seg-view"><button type="button" data-v="chart">Chart</button><button type="button" data-v="page">Original page</button></span>
         <button class="pl-btn btn-loop" type="button" title="Loop the bars you selected">Loop</button>
         <button class="pl-btn btn-clear" type="button">Clear selection</button>
-        <label class="follow-control"><input type="checkbox" class="in-follow" checked> Follow score</label><span class="pl-hint">Tap a bar to start there · to loop: tap the first bar, Loop, then the last bar (or Shift-click) · Space plays / stops</span>
+        <label class="follow-control"><input type="checkbox" class="in-follow" checked> Follow score</label><span class="pl-hint">Tap a measure to jump there · to loop: tap the first bar, Loop, then the last bar (or Shift-click) · Space plays / pauses</span>
       </div>
       <div class="pl-view"></div></section>
+      <div class="tempo-strip"><label for="tempo-slider">Tempo</label>
+        <input id="tempo-slider" type="range" class="in-tempo-r" min="40" max="320" value="${s.tempo}" aria-valuetext="${s.tempo} BPM">
+        <input type="number" class="in-tempo" aria-label="Tempo in beats per minute" min="40" max="320" value="${s.tempo}" inputmode="numeric"><span>BPM</span>
+      </div>
       <nav class="dock" aria-label="Playback controls">
         <button class="pl-play" type="button">▶ Play</button>
         <button type="button" class="pl-stop" disabled>Stop</button>
@@ -330,11 +353,10 @@ export class Player {
     });
     const setTempo = (v) => {
       v = Math.max(40, Math.min(320, Math.round(+v || 120))); s.tempo = v;
-      $('.in-tempo', r).value = v; $('.in-tempo-r', r).value = v; post({ t: 'tempo', bpm: v });
+      $('.in-tempo', r).value = v; $('.in-tempo-r', r).value = v; $('.in-tempo-r', r).setAttribute('aria-valuetext', v + ' BPM'); post({ t: 'tempo', bpm: v });
     };
     $('.in-tempo', r).onchange = (e) => setTempo(e.target.value);
     $('.in-tempo-r', r).oninput = (e) => setTempo(e.target.value);
-    $('.in-tempo-r', r).onchange = () => { if (!this.state.playing) this.reprep(); };
     $('.in-key', r).onchange = (e) => { s.key = +e.target.value; post({ t: 'transpose', semis: s.key }); this.drawChart(); };
     $('.in-feel', r).onchange = (e) => { s.feel = +e.target.value; this.save(); this.reprep(); };
     $('.seg-role', r).onclick = (e) => {
@@ -347,8 +369,8 @@ export class Player {
     $('.in-guide', r).onchange = (e) => { s.guide = e.target.checked; this.save(); this.sendLevels(); };
     $('.in-chor', r).onchange = (e) => { s.choruses = +e.target.value; this.save(); this.sendAll(); };
     $('.in-every', r).onchange = (e) => { s.leadEvery = e.target.checked; this.save(); post({ t: 'leadmask', mask: this.leadMask() }); };
-    r.querySelectorAll('.in-player').forEach(el => el.onchange = () => { s.players[+el.dataset.i] = +el.value; this.save(); post({ t: 'player', inst: +el.dataset.i, who: +el.value }); });
-    $('.in-leadsound', r).onchange = (e) => { s.leadSound = +e.target.value; this.save(); this.sendLevels(); };
+    r.querySelectorAll('.in-player').forEach(el => el.onchange = () => { s.players[+el.dataset.i] = +el.value; el.closest('.channel').querySelector('.player-note').textContent = STYLE_NOTES[+el.dataset.i][+el.value]; this.save(); post({ t: 'player', inst: +el.dataset.i, who: +el.value }); });
+    $('.in-leadsound', r).onchange = (e) => { s.leadSound = +e.target.value; e.target.closest('.channel').querySelector('.player-note').textContent = LEAD_VOICES[s.leadSound][1]; this.save(); this.sendLevels(); };
     $('.in-leadoct', r).onchange = (e) => { s.leadOct = +e.target.value; this.save(); this.sendLevels(); };
     $('.in-intro', r).onchange = (e) => { s.intro = +e.target.value; this.save(); this.sendAll(); };
     $('.in-ending', r).onchange = (e) => { s.ending = +e.target.value; this.save(); this.sendAll(); };
@@ -483,8 +505,24 @@ export class Player {
     else this.sel = [src, src];
     this.startSrc = this.sel[0];
     const lb = $('.btn-loop', this.root); lb.disabled = false;
-    if (this.loop) { this.loop = this.sel.slice(); this.sendLoop(); }
+    if (shift && this.loop) { this.loop = this.sel.slice(); this.sendLoop(); }
+    if (!shift && this.loop && (src < this.loop[0] || src > this.loop[1])) {
+      this.loop = null;
+      this.sendLoop();
+      lb.classList.remove('on');
+      lb.textContent = 'Loop';
+    }
     this.markSelection();
+    if (shift) return;
+    if (this.state.playing) {
+      const form = this.prep.form;
+      // Prefer the occurrence closest to the current pass through a repeated section.
+      let target = -1;
+      for (let i = 0; i < form.length; i++) {
+        if (form[i] === src && (target < 0 || Math.abs(i - this.state.bar) < Math.abs(target - this.state.bar))) target = i;
+      }
+      if (target >= 0) post({ t: 'seek', bar: target });
+    } else this.status('Cued at bar ' + (src + 1));
   }
   markSelection() {
     const view = $('.pl-view', this.root); if (!view) return;
@@ -555,6 +593,7 @@ export class Player {
         });
       }
       this.markSelection();
+      if (this.state.playing) this.pageHighlight(this.lastSrc);
     } catch (err) {
       view.innerHTML = `<div class="pl-loading">Could not open the PDF (${esc(err.message || err)}).</div>`;
     }

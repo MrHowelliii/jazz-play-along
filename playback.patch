@@ -1,0 +1,102 @@
+--- a/web/jb_web.c
++++ b/web/jb_web.c
+@@ -145,13 +145,14 @@
+     for (int b = 0; b <= JB_MAXBARS; b++) { while (k < lead_n && LN[k].bar < b) k++; lead_first[b] = k; }
+ }
+ EXPORT(jbw_lead_mask) void jbw_lead_mask(uint32_t m) { lead_mask = m; }
+-EXPORT(jbw_lead_sound) void jbw_lead_sound(int s, int level, int oct) { lead_sound = s & 3; lead_level = level; lead_oct = oct; }
++EXPORT(jbw_lead_sound) void jbw_lead_sound(int s, int level, int oct) { lead_sound = s >= 0 && s <= 5 ? s : 4; lead_level = level; lead_oct = oct; }
+ 
+ /* synth lead voices: float, mono, panned slightly left */
+ typedef struct {
+     int on, wait, len, age, rel;                          /* samples: before start, gate, since start; releasing */
+     float f, ph, ph2, env, lp, bp, vel, vib, glide;
+-    int kind;
++    int kind, zone;
++    float sample_pos, sample_step;
+ } lvoice_t;
+ #define NLV 4
+ static lvoice_t LV[NLV];
+@@ -169,10 +170,13 @@
+     for (int n = 70; n < 128; n++) { f *= r; FREQ[n] = (float)f; }
+     f = 440.0; for (int n = 68; n >= 0; n--) { f /= r; FREQ[n] = (float)f; }
+ }
++#include "trumpet-data.h"
++static const int trumpet_roots[6] = {58, 60, 68, 74, 77, 81};
+ static void lead_note_on(jb_t *e, int note, int vel, int wait, int len_samples, int bpt_q8, int dur_ticks) {
+     if (note < 0) note = 0; if (note > 127) note = 127;
+-    if (lead_sound == 1 || lead_sound == 2) {             /* a band voice from the piano or guitar pack, at the lead level */
+-        int inst = lead_sound == 1 ? I_PIANO : I_GUITAR, li = inst == I_PIANO ? 2 : 3;
++    if (lead_sound == 1 || lead_sound == 2 || lead_sound == 5) {             /* a band voice from the piano or guitar pack, at the lead level */
++        int inst = lead_sound == 1 ? I_PIANO : lead_sound == 2 ? I_GUITAR : I_BASS;
++        int li = inst;
+         int32_t keep = e->lvl[li];
+         e->lvl[li] = (lead_level * 40960) >> 15;
+         int sn = e->strum_n; e->strum_n = 0;
+@@ -190,13 +194,21 @@
+     }
+     static int rr;
+     lvoice_t *v = &LV[0];                                  /* horn: monophonic, the newest note takes the voice (legato) */
+-    if (lead_sound == 3) { rr = (rr + 1) % NLV; v = &LV[rr]; }   /* vibes: notes ring over each other */
++    if (lead_sound == 3 || lead_sound == 4) { rr = (rr + 1) % NLV; v = &LV[rr]; }   /* vibes: notes ring over each other */
+     int legato = lead_sound == 0 && v->on && !v->rel && v->age > 0;
+     v->kind = lead_sound;
+     v->wait = wait; v->len = len_samples; v->rel = 0;
+     v->vel = 0.35f + 0.65f * vel / 127.0f;
+     if (legato && lead_sound == 0) { v->glide = v->f; }
+     else { v->glide = FREQ[note]; v->age = 0; v->env = 0; v->ph = 0; v->ph2 = 0; v->lp = v->bp = 0; v->vib = 0; }
++    if (lead_sound == 4) {
++        int zone = 0;
++        while (zone < 5 && 2 * note > trumpet_roots[zone] + trumpet_roots[zone + 1]) zone++;
++        v->zone = zone;
++        v->sample_pos = 0;
++        v->sample_step = 0.5f * FREQ[note] / FREQ[trumpet_roots[zone]];
++        v->env = 1;
++    }
+     v->f = FREQ[note];
+     v->on = 1;
+ }
+@@ -229,7 +241,18 @@
+             if (v->wait > 0) { v->wait--; continue; }
+             float target = v->rel ? 0.0f : 1.0f;
+             float s;
+-            if (v->kind == 3) {                           /* vibes: two-operator FM bell, motor tremolo */
++            if (v->kind == 4) {
++                int i = (int)v->sample_pos;
++                float fraction = v->sample_pos - i;
++                const int16_t *pcm = trumpet_pcm[v->zone];
++                int next = i + 1 == 44100 ? 22050 : i + 1;
++                float sample = pcm[i] + (pcm[next] - pcm[i]) * fraction;
++                s = sample * (1.0f / 32768.0f) * v->env * v->vel;
++                v->sample_pos += v->sample_step;
++                if (v->sample_pos >= 44100) v->sample_pos -= 22050;
++                if (v->rel) v->env *= 0.997f;
++                if (v->env < 0.0005f) { v->on = 0; break; }
++            } else if (v->kind == 3) {                           /* vibes: two-operator FM bell, motor tremolo */
+                 if (v->age == 0) v->env = 1.0f;
+                 v->env *= v->rel ? 0.99965f : 0.99996f;
+                 float mod = fsin(v->ph2) * 1.2f * v->env;
+@@ -263,6 +286,23 @@
+     }
+ }
+ 
++/* A score tap cues the downbeat inside the current chorus. */
++EXPORT(jbw_seek) void jbw_seek(int bar) {
++    jb_t *e = E();
++    if (e->state == ST_STOP || bar < 0 || bar >= e->nbars) return;
++    for (int i = 0; i < JB_VOICES; i++) e->v[i].active = 0;
++    for (int i = 0; i < NLV; i++) LV[i].on = 0;
++    e->state = e->s_state = ST_PLAY;
++    e->bar = e->s_bar = bar;
++    e->tick = e->s_beat = 0;
++    e->acc = e->spt;
++    e->kind = BK_CHART;
++    e->jump = -1;
++    e->ending = e->tag_i = e->pv_ok = e->skip_down = e->crash_next = e->gv = 0;
++    make_bar(e, &e->vb, bar, BK_CHART, e->shift, 0);
++    plan_next(e);
++}
++
+ /* ------------------------------------------------------------------ audio */
+ EXPORT(jbw_render) void jbw_render(void) {              /* 128 frames into OUTL / OUTR, floats */
+     static int tables;
