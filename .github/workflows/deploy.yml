@@ -18,12 +18,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: MrHowelliii/jazzband-op1r
-          ref: 1a56be35c779e229aebb603c6798bbfa40261d7a
+          ref: 281351ca702e64af2f71ace9b4ebd353b5199e80
           path: upstream
       - uses: actions/checkout@v4
         with:
           repository: MrHowelliii/jazzbook
-          ref: ae727a280ef8c6c239f9e0dec10fbaa645851832
+          ref: 946598363db85b3805c6a32ff8614f46d3bdb3b0
           path: catalog
       - run: bash build.sh
       - uses: actions/configure-pages@v5

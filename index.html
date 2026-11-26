@@ -389,7 +389,7 @@
 
 </main><section id="player" aria-label="Play-along player"></section>
 <script type="module">
-import { Player, normTitle } from './player.js?v=sound4';
+import { Player, normTitle } from './player.js?v=sound5';
 let playableOnly = false;
 const leadsById = {};
 let player = null;
@@ -646,6 +646,15 @@ async function init() {
     if (!autoNext() || k < 0 || k + 1 >= list.length || !leadsById[list[k + 1]]) return;
     openSong(list[k + 1]);
     player.play();
+  };
+  // an OP-1 key (midi.js): the next or previous tune in my list
+  player.onstep = (dir) => {
+    const list = favs().filter(id => leadsById[id]), k = list.indexOf(player.song?.id);
+    if (!list.length) { player.status('Add tunes to My list to step through them'); return; }
+    const next = list[(k < 0 ? (dir > 0 ? 0 : list.length - 1) : (k + dir + list.length) % list.length)];
+    const was = player.state.playing;
+    openSong(next);
+    if (was) player.play();
   };
   drawMyList();
   player.onbrowse = () => {

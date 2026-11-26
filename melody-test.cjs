@@ -6,7 +6,7 @@ async function main() {
   const x = instance.exports;
   const heap = new Uint8Array(x.memory.buffer);
   x.jbw_init();
-  for (const name of ['jbdrums','jbbass','jbpiano','jbguitar']) {
+  for (const name of ['jbdrums','jbbass','jbpiano','jbguitar','jbgtrlead']) {
     const bytes = fs.readFileSync('web/packs/' + name + '.jbp');
     const pointer = x.jbw_alloc(bytes.length);
     assert.ok(pointer);

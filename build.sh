@@ -3,7 +3,7 @@ set -euo pipefail
 root=$(pwd)
 site="$root/site"
 mkdir -p "$site/engine/packs"
-cp index.html player.js notation.js studio.css "$site/"
+cp index.html player.js notation.js midi.js studio.css "$site/"
 cp sw.js manifest.webmanifest "$site/"
 cp -R icons "$site/"
 cp catalog/app/songform.js "$site/"
@@ -18,7 +18,7 @@ python3 "$root/trumpet-header.py" "$root/muted-trumpet.wav" > web/trumpet-data.h
 cp "$root/melody-credits.md" "$site/engine/packs/"
 sh web/build.sh
 mkdir -p web/packs
-for pack in jbdrums jbbass jbpiano jbguitar jblead; do
+for pack in jbdrums jbbass jbpiano jbguitar jblead jbgtrlead; do
   cp "$root/catalog/engine/packs/$pack.jbp" "web/packs/$pack.jbp"
 done
 node web/test/wasm.test.mjs

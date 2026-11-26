@@ -2,6 +2,7 @@
 // band and the melody with a lead voice, from lead sheets parsed out of the fake-book PDFs (leads/*.json).
 import { prepare, transposeSym, prettySym, KEY_NAMES, keyTonic, normTitle } from './songform.js';
 import { staffBar, rowHead, romanize, transposeKey, barMap } from './notation.js';
+import { Midi, ACTIONS, PARTS } from './midi.js';
 
 const INST = ['Drums', 'Bass', 'Piano', 'Guitar'];
 const PLAYERS = [
@@ -31,8 +32,8 @@ const LEAD_VOICES = [
 ];
 const LVL_DEFAULT = [23593, 26214, 20971, 11796];       // the plugin's defaults (Q15) for drums, bass, piano, guitar
 const LEAD_DEFAULT = 24000;
-const PACKS = ['jbdrums', 'jbbass', 'jbpiano', 'jbguitar', 'jblead'];   // jblead: the recorded alto sax (optional)
-const V = '?v=sound4';                                   // bump when engine files change under the same name
+const PACKS = ['jbdrums', 'jbbass', 'jbpiano', 'jbguitar', 'jblead', 'jbgtrlead'];   // optional: jblead the alto sax, jbgtrlead the melody guitar
+const V = '?v=sound5';                                   // bump when engine files change under the same name
 const ICON = {
   play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>',
   pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4.5h4.5v15H6zM13.5 4.5H18v15h-4.5z"/></svg>',
@@ -50,7 +51,8 @@ const store = {
 };
 
 // ---------------------------------------------------------------------------------------------- the engine
-let ctx = null, node = null, gain = null, room = null, engineReady = null, packsOk = [0, 0, 0, 0, 0];
+let ctx = null, node = null, gain = null, room = null, engineReady = null, packsOk = [0, 0, 0, 0, 0, 0];
+let onMidi = () => {};
 let onPos = () => {}, onAudioState = () => {};
 
 // The engine and its instruments start downloading when the page opens, so the first Play does not wait for them.
@@ -132,6 +134,7 @@ async function ensureEngine(status) {
         if (d.t === 'ready') res();
         else if (d.t === 'pos') onPos(d);
         else if (d.t === 'packs') packsOk = d.ok;
+        else if (d.t === 'midi') onMidi(d);
       };
     });
     const files = preload();
@@ -156,7 +159,7 @@ async function ensureEngine(status) {
     status('');
   })().catch(async error => {
     await ctx?.close().catch(() => {});
-    engineReady = null; ctx = null; node = null; room = null; assets = null; packsOk = [0, 0, 0, 0, 0];
+    engineReady = null; ctx = null; node = null; room = null; assets = null; packsOk = [0, 0, 0, 0, 0, 0];
     throw error;
   });
   return engineReady;
@@ -186,6 +189,9 @@ export class Player {
     this.mix = { mute: [false, false, false, false, false], solo: [false, false, false, false, false] };   // until the page closes
     preload();
     onPos = (d) => this.position(d);
+    this.midi = new Midi((act, v) => this.midiAction(act, v), () => this.drawMidi());
+    onMidi = (d) => this.midi.play(ctx, d);
+    if (this.midi.supported && this.midi.cfg.auto) this.midi.connect().catch(() => {});   // reconnect quietly if used before
     // a call, Siri or a route change stops the audio: hold the band at this beat, Resume carries on from it
     onAudioState = (state) => {
       if (state !== 'running' && this.state.playing && !this.paused && !this.starting) {
@@ -285,13 +291,16 @@ export class Player {
     post({ t: 'human', amount: s.human });
     post({ t: 'leadmask', mask: this.leadMask() });
     post({ t: 'trade', bars: s.trade || 0 });
+    this.sendMidiRoute();
     this.sendLoop();
   }
   sendLevels() {
     const s = this.s, muted = { piano: 2, guitar: 3, bass: 1, drums: 0 }[s.role];
     const heard = (ch) => this.heard(ch);                  // the mixer's mute and solo buttons (4 = the melody)
-    LVL_DEFAULT.forEach((d, i) => post({ t: 'level', inst: i, value: i === muted || !heard(i) ? 1 : Math.min(32767, Math.round(d * s.levels[i] / 100)) }));
+    const away = this.midi && this.midi.out && this.midi.cfg.muteLocal ? this.midi.cfg.part : -1;   // the part the OP-1 plays
+    LVL_DEFAULT.forEach((d, i) => post({ t: 'level', inst: i, value: i === muted || i === away || !heard(i) ? 1 : Math.min(32767, Math.round(d * s.levels[i] / 100)) }));
     let lead = Math.round(LEAD_DEFAULT * s.lead / 100);
+    if (away === 4) lead = 0;
     if (s.role === 'lead') lead = s.guide ? Math.round(lead * 0.22) : 0;
     if (!heard(4)) lead = 0;
     this.root.querySelectorAll('.channel[data-ch]').forEach(el => el.classList.toggle('silent', !heard(+el.dataset.ch)));
@@ -345,18 +354,62 @@ export class Player {
     this.sendSong();
     const from = this.loop ? this.prep.form.indexOf(this.loop[0]) : this.startSrc >= 0 ? this.prep.form.indexOf(this.startSrc) : -1;
     post({ t: 'play', from });
+    this.midi.start();
     this.state.playing = true;
     this.passes = 0; this.lastBarIdx = null; this.lastBeatIdx = 0;
     this.wake(true);
     this.updateTransport();
   }
   stop() {
-    this.paused = false; post({ t: 'stop' }); this.state.playing = false; this.state.bar = -1;
+    this.paused = false; post({ t: 'stop' }); this.midi?.stop(); this.state.playing = false; this.state.bar = -1;
     if (this.trainBase) this.setTempo(this.trainBase, false);
     this.trainBase = null;
     this.wake(false); this.cue(''); this.updateTransport(); this.highlight(-1);
   }
   finish() { post({ t: 'finish' }); }
+  sendMidiRoute() { const r = this.midi.route(); post({ t: 'midiroute', mask: r.mask, clock: r.clock }); }
+  // an OP-1 key or knob (midi.js learn): the same as the buttons on the page
+  midiAction(act, v) {
+    if (!this.song) return;
+    const r = this.root, s = this.s;
+    const sel = (cls, val) => { const el = $(cls, r); if (el) { el.value = String(val); el.dispatchEvent(new Event('change')); } };
+    ({
+      play: () => this.toggle(), stop: () => this.stop(), finish: () => this.finish(),
+      tempoUp: () => this.setTempo(s.tempo + 5), tempoDown: () => this.setTempo(s.tempo - 5), tempoSet: () => this.setTempo(v),
+      next: () => this.onstep?.(1), prev: () => this.onstep?.(-1),
+      loop: () => $('.btn-loop', r)?.click(),
+      feel: () => sel('.in-feel', (s.feel + 1) % 8),
+      trade: () => sel('.in-trade', [0, 4, 8][([0, 4, 8].indexOf(s.trade || 0) + 1) % 3]),
+      keyUp: () => sel('.in-key', Math.min(6, s.key + 1)), keyDown: () => sel('.in-key', Math.max(-6, s.key - 1)),
+    })[act]?.();
+  }
+  drawMidi() {
+    const box = $('.midi-box', this.root); if (!box) return;
+    const m = this.midi, c = m.cfg, ins = m.ports('in'), outs = m.ports('out');
+    if (!m.supported) { box.innerHTML = '<p class="midi-note">MIDI needs Chrome or Edge on a computer or Android (Safari, iPhone and iPad have no Web MIDI).</p>'; return; }
+    if (!m.access) { box.innerHTML = '<p class="midi-note">Plug the OP-1 in by USB, then connect. The browser asks once for MIDI access.</p><button type="button" class="pl-btn midi-connect">Connect MIDI</button>'; $('.midi-connect', box).onclick = () => { c.auto = true; m.save(); m.connect().catch(e => this.status(e.message)); }; return; }
+    const opts = (list, cur) => `<option value="">—</option>` + list.map(p => `<option value="${esc(p.id)}" ${cur && cur.id === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+    box.innerHTML = `
+      <div class="midi-grid">
+        <label>Controls from <select class="midi-in">${opts(ins, m.in)}</select></label>
+        <label>Send to <select class="midi-out">${opts(outs, m.out)}</select></label>
+        <label>It plays <select class="midi-part">${PARTS.map(([v, t]) => `<option value="${v}" ${c.part === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+        <label>Channel <select class="midi-ch">${Array.from({ length: 16 }, (_, i) => `<option ${c.ch === i + 1 ? 'selected' : ''}>${i + 1}</option>`).join('')}</select></label>
+        <label class="midi-check"><input type="checkbox" class="midi-mute" ${c.muteLocal ? 'checked' : ''}> Silence that part here</label>
+        <label class="midi-check" title="The OP-1 follows the band's tempo (its sequencers and tape)"><input type="checkbox" class="midi-clock" ${c.clock ? 'checked' : ''}> Send MIDI clock</label>
+      </div>
+      <h4>Controls <span class="midi-note">Press Learn, then the OP-1 key or knob</span></h4>
+      <table class="midi-map">${ACTIONS.map(([a, t]) => `<tr><td>${t}</td><td class="midi-ctl">${m.learning === a ? '<b>press a key or turn a knob…</b>' : esc(m.label(c.map[a]))}</td>
+        <td><button type="button" class="pl-btn midi-learn" data-a="${a}" aria-pressed="${m.learning === a}">${m.learning === a ? 'Cancel' : 'Learn'}</button>${c.map[a] ? `<button type="button" class="pl-btn midi-forget" data-a="${a}" aria-label="Forget ${t}">×</button>` : ''}</td></tr>`).join('')}</table>`;
+    $('.midi-in', box).onchange = (e) => m.setPort('in', e.target.value);
+    $('.midi-out', box).onchange = (e) => { m.stop(); m.setPort('out', e.target.value); this.sendLevels(); this.sendMidiRoute(); };
+    $('.midi-part', box).onchange = (e) => { m.stop(); c.part = +e.target.value; m.save(); this.sendLevels(); this.sendMidiRoute(); };
+    $('.midi-ch', box).onchange = (e) => { m.stop(); c.ch = +e.target.value; m.save(); };
+    $('.midi-mute', box).onchange = (e) => { c.muteLocal = e.target.checked; m.save(); this.sendLevels(); };
+    $('.midi-clock', box).onchange = (e) => { c.clock = e.target.checked; m.save(); this.sendMidiRoute(); };
+    box.querySelectorAll('.midi-learn').forEach(b => b.onclick = () => m.learn(b.dataset.a));
+    box.querySelectorAll('.midi-forget').forEach(b => b.onclick = () => m.forget(b.dataset.a));
+  }
 
   position(d) {
     const was = this.state.playing;
@@ -484,6 +537,7 @@ export class Player {
             <label class="fader"><input type="range" aria-label="${name} level" class="in-level" data-i="${lead?'lead':i}" min="0" max="150" value="${level}"><output>${level}%</output></label>
           </section>`;
         }).join('')}
+        <section class="channel midi-channel"><h4>OP-1 / MIDI</h4><div class="midi-box"></div></section>
       </section>
       <section class="setup-sheet panel" aria-label="Song settings" hidden><h3>Song settings</h3>
       <div class="pl-bar">
@@ -548,6 +602,7 @@ export class Player {
     $('.pl-stop', r).onclick = () => this.stop();
     $('.pl-play', r).onclick = () => this.toggle();
     $('.pl-finish', r).onclick = () => this.finish();
+    this.drawMidi();
     const panels = {score: $('.score-panel',r), mix: $('.mix-sheet',r), setup: $('.setup-sheet',r)};
     r.querySelectorAll('[data-panel]').forEach(button => button.onclick = () => {
       this.panel = button.dataset.panel;

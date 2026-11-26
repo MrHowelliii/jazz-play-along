@@ -117,3 +117,12 @@ body.stage .chart.chordgrid .bar .chords span{font-size:clamp(1.5rem,6vw,3.4rem)
 .chart.chordgrid .bar .chords sup{font-size:.56em;font-weight:500;vertical-align:.55em;margin-left:1px;letter-spacing:-.01em}
 .chart.chordgrid .bar .chords span{padding-left:4px;white-space:nowrap}
 .bar .chords sup{font-size:.6em;font-weight:500;vertical-align:.5em;margin-left:1px}
+/* OP-1 / MIDI: the whole width of the mixer, settings in a grid, the learned controls as a list */
+.midi-channel{display:block;grid-column:1/-1}.midi-channel h4{margin-bottom:6px}
+.midi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px 12px;margin-bottom:10px}
+.midi-grid label{display:grid;gap:3px;font:13px system-ui;color:var(--muted)}.midi-grid select{width:100%;min-width:0}
+.midi-grid .midi-check{display:flex;align-items:center;gap:8px;color:var(--cream)}
+.midi-channel h4 .midi-note{font-weight:400;margin-left:8px}.midi-note{font:13px system-ui;color:var(--muted)}
+.midi-map{width:100%;border-collapse:collapse;font:14px system-ui}.midi-map td{padding:3px 4px;border-top:1px solid var(--border)}
+.midi-map td:nth-child(2){color:var(--gold);width:38%}.midi-map td:last-child{text-align:right;white-space:nowrap}
+.midi-map .pl-btn{min-height:36px;padding:0 12px}.midi-forget{margin-left:4px}

@@ -52,6 +52,7 @@ class JazzBand extends AudioWorkletProcessor {
       case 'tempo': X.jbw_tempo(d.bpm); break;
       case 'feel': X.jbw_feel(d.feel); break;
       case 'trade': X.jbw_trade?.(d.bars); break;
+      case 'midiroute': X.jbw_midi_route?.(d.mask, d.clock ? 1 : 0); break;
       case 'transpose': X.jbw_transpose(d.semis); break;
       case 'player': X.jbw_player(d.inst, d.who); break;
       case 'level': X.jbw_level(d.inst, d.value); break;
@@ -60,7 +61,7 @@ class JazzBand extends AudioWorkletProcessor {
       case 'leadmask': X.jbw_lead_mask(d.mask >>> 0); break;
       case 'leadsound': X.jbw_lead_sound(d.sound, d.level, d.oct); break;
       case 'human': X.jbw_human?.(d.amount); break;
-      case 'packs': this.port.postMessage({ t: 'packs', ok: [0, 1, 2, 3, 5].map(i => X.jbw_pack_ok(i)) }); break;
+      case 'packs': this.port.postMessage({ t: 'packs', ok: [0, 1, 2, 3, 5, 6].map(i => X.jbw_pack_ok(i)) }); break;
     }
   }
   process(inputs, outputs) {
@@ -72,6 +73,12 @@ class JazzBand extends AudioWorkletProcessor {
     const buf = X.memory.buffer;
     out[0].set(new Float32Array(buf, X.jbw_out_l(), 128));
     if (out[1]) out[1].set(new Float32Array(buf, X.jbw_out_r(), 128));
+    const n = X.jbw_midi_n ? X.jbw_midi_n() : 0;            // notes for MIDI out (the part sent to an OP-1 or a synth)
+    if (n) {
+      const dv = new DataView(buf), p = X.jbw_midi_buf(), ev = [];
+      for (let k = 0; k < n; k++) { const o = p + 12 * k; ev.push(dv.getUint8(o), dv.getUint8(o + 1), dv.getUint8(o + 2), dv.getUint8(o + 3), dv.getInt32(o + 4, true), dv.getInt32(o + 8, true)); }
+      this.port.postMessage({ t: 'midi', at: currentTime, ev });
+    }
     this.reportPosition();
     return true;
   }
