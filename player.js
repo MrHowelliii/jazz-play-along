@@ -223,7 +223,7 @@ export class Player {
   }
   save() { const { tempo, key, feel, ...rest } = this.s; store.set('settings', rest); }
   // what you last used for this tune
-  saveTune() { if (this.song) store.set('tune.' + this.song.id, { tempo: this.trainBase || this.s.tempo, key: this.s.key, feel: this.s.feel }); }
+  saveTune() { if (this.song) store.set('tune.' + this.song.id, { tempo: this.trainBase || this.s.tempo, key: this.s.key, feel: this.s.feel, alt: this.alt }); }
   setTempo(v, remember = true) {
     const s = this.s, r = this.root;
     v = Math.max(40, Math.min(320, Math.round(+v || 120))); s.tempo = v;
@@ -257,8 +257,10 @@ export class Player {
     if (this.state.playing) this.stop();
     this.loadRequest = (this.loadRequest || 0) + 1;
     this.starting = false;
-    this.song = song;
+    this.orig = song;
     const mine = store.get('tune.' + song.id, {});
+    this.alt = !!mine.alt && hasAlt(song);
+    this.song = withChanges(song, this.alt);
     this.s.tempo = mine.tempo || song.tempo || defaultTempo(song);
     this.s.key = mine.key || 0; this.startSrc = -1; this.loop = null; this.sel = null; this.picking = false; this.trainBase = null;
     this.s.feel = mine.feel ?? song.feel ?? guessFeel(song);
@@ -543,6 +545,7 @@ export class Player {
       <div class="pl-bar">
         <button type="button" class="pl-btn pl-finish" disabled>Finish after chorus</button>
         <label>Key <select class="in-key">${keyOpts.join('')}</select></label>
+        ${hasAlt(this.orig) ? `<label title="This book prints two sets of changes: the basic ones, and alternatives above them">Changes <select class="in-changes"><option value="basic">Basic</option><option value="alt" ${this.alt ? 'selected' : ''}>Alternative</option></select></label>` : ''}
         <label>Feel <select class="in-feel"><option value="0">Swing</option><option value="1">Ballad</option><option value="2">Bossa / straight</option><option value="3">Two-feel</option><option value="4">Two-feel, then four</option><option value="5">Shuffle</option><option value="6">Samba</option><option value="7">Even eighths</option></select></label>
         <span class="pl-break"></span>
         <span class="pl-field">You play</span>
@@ -624,6 +627,11 @@ export class Player {
     $('.in-key', r).onchange = (e) => { s.key = +e.target.value; post({ t: 'transpose', semis: s.key }); this.saveTune(); this.drawChart(); };
     this.roman = null;
     $('.in-feel', r).onchange = (e) => { s.feel = +e.target.value; this.saveTune(); this.reprep(); };
+    const ch = $('.in-changes', r);
+    if (ch) ch.onchange = (e) => {                       // the book's basic changes or its alternatives (Hyman's in red)
+      this.alt = e.target.value === 'alt'; this.song = withChanges(this.orig, this.alt); this.roman = null;
+      this.saveTune(); this.reprep();
+    };
     const setRole = (v) => {
       s.role = v; this.save();
       r.querySelectorAll('.seg-role button').forEach(x => x.classList.toggle('on', x.dataset.v === v));
@@ -1008,6 +1016,12 @@ function loadPdfJs() {
 function getDoc(pdfjs, file) {
   if (!docs[file]) docs[file] = pdfjs.getDocument({ url: file, isEvalSupported: false, disableAutoFetch: true, rangeChunkSize: 262144 }).promise;
   return docs[file];
+}
+// a chart can carry a second set of chords per bar (ca: a book's alternative changes); bars without one keep the basic
+function hasAlt(song) { return !!song && song.bars.some(b => b.ca && b.ca.length); }
+function withChanges(song, alt) {
+  if (!alt || !hasAlt(song)) return song;
+  return { ...song, bars: song.bars.map(b => (b.ca && b.ca.length ? { ...b, c: b.ca } : b)) };
 }
 function defaultTempo(song) {
   const t = (song.title || '').toLowerCase();
