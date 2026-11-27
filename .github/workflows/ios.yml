@@ -1,0 +1,37 @@
+name: iOS app (build and test)
+on:
+  push:
+    paths: ['ios/**', 'playback.patch', '.github/workflows/ios.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: MrHowelliii/jazzband-op1r
+          ref: 3a37ac8fc128348df9766b12c8c31fd23a3f4497
+          path: upstream
+      - uses: actions/checkout@v4
+        with:
+          repository: MrHowelliii/jazzbook
+          ref: 0bd5128807d03994b943e41f21e861f639ee1c7b
+          path: catalog
+      - run: sh ios/stage.sh
+      - run: brew install xcodegen
+      - run: cd ios && xcodegen generate
+      - name: Build and test on the iPhone simulator
+        run: |
+          cd ios
+          SIM=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print(next(x['udid'] for k,v in d.items() if 'iOS' in k for x in v if x['name'].startswith('iPhone')))")
+          xcodebuild test -project JazzPlayAlong.xcodeproj -scheme JazzPlayAlong -destination "id=$SIM" \
+            CODE_SIGNING_ALLOWED=NO > build.log 2>&1 || { grep -E "error:|failed|FAIL" build.log | head -60; tail -80 build.log; exit 1; }
+          grep -E "Test Case|rendered:|Executed" build.log | tail -20
+      - name: Build for a device (unsigned, to check it compiles for arm64 iOS)
+        run: |
+          cd ios
+          xcodebuild build -project JazzPlayAlong.xcodeproj -scheme JazzPlayAlong -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO | tail -5

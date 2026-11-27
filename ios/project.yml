@@ -1,0 +1,56 @@
+# XcodeGen spec for the iOS app (proof of concept). Generate with: sh stage.sh && xcodegen generate
+name: JazzPlayAlong
+options:
+  bundleIdPrefix: com.mrhowelliii
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""            # set your Apple team here, or in Xcode (Signing & Capabilities)
+targets:
+  JazzPlayAlong:
+    type: application
+    platform: iOS
+    sources:
+      - path: JazzPlayAlong
+        excludes: ["Info.plist"]
+      - path: build/Resources
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mrhowelliii.jazzplayalong
+        SWIFT_OBJC_BRIDGING_HEADER: JazzPlayAlong/Engine/Bridging-Header.h
+        HEADER_SEARCH_PATHS: ["$(SRCROOT)/JazzPlayAlong/Engine", "$(SRCROOT)/build/upstream/web", "$(SRCROOT)/build/upstream/mock", "$(SRCROOT)/build/upstream/plugins/jazzband"]
+        GCC_C_LANGUAGE_STANDARD: gnu11
+        OTHER_CFLAGS: ["-Wno-unused-function", "-Wno-unused-variable", "-Wno-deprecated-declarations"]
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_BITCODE: NO
+    info:
+      path: JazzPlayAlong/Info.plist
+      properties:
+        CFBundleDisplayName: Play-Along
+        UIBackgroundModes: [audio]
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+  JazzPlayAlongTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [JazzPlayAlongTests]
+    dependencies:
+      - target: JazzPlayAlong
+    settings:
+      base:
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/JazzPlayAlong.app/JazzPlayAlong"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  JazzPlayAlong:
+    build:
+      targets:
+        JazzPlayAlong: all
+        JazzPlayAlongTests: [test]
+    test:
+      targets: [JazzPlayAlongTests]
