@@ -33,7 +33,7 @@ const LEAD_VOICES = [
 const LVL_DEFAULT = [23593, 26214, 20971, 11796];       // the plugin's defaults (Q15) for drums, bass, piano, guitar
 const LEAD_DEFAULT = 24000;
 const PACKS = ['jbdrums', 'jbbass', 'jbpiano', 'jbguitar', 'jblead', 'jbgtrlead'];   // optional: jblead the alto sax, jbgtrlead the melody guitar
-const V = '?v=sound5';                                   // bump when engine files change under the same name
+const V = '?v=sound6';                                   // bump when engine files change under the same name
 const ICON = {
   play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>',
   pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4.5h4.5v15H6zM13.5 4.5H18v15h-4.5z"/></svg>',

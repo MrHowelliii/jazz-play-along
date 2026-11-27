@@ -1,6 +1,6 @@
 --- a/web/jb_web.c
 +++ b/web/jb_web.c
-@@ -160,7 +160,7 @@
+@@ -162,7 +162,7 @@
      for (int b = 0; b <= JB_MAXBARS; b++) { while (k < lead_n && LN[k].bar < b) k++; lead_first[b] = k; }
  }
  EXPORT(jbw_lead_mask) void jbw_lead_mask(uint32_t m) { lead_mask = m; }
@@ -9,7 +9,7 @@
  
  /* MIDI out: the parts the page sends to another instrument (an OP-1, a synth) as note events, timed from the start
   * of the current render call; the page reads them after each call (jbw_midi_*) and turns them into MIDI. */
-@@ -224,7 +224,8 @@
+@@ -226,7 +226,8 @@
  typedef struct {
      int on, wait, len, age, rel;                          /* samples: before start, gate, since start; releasing */
      float f, ph, ph2, env, lp, bp, vel, vib, glide;
@@ -19,16 +19,16 @@
  } lvoice_t;
  #define NLV 4
  static lvoice_t LV[NLV];
-@@ -242,6 +243,8 @@
-     for (int n = 70; n < 128; n++) { f *= r; FREQ[n] = (float)f; }
-     f = 440.0; for (int n = 68; n >= 0; n--) { f /= r; FREQ[n] = (float)f; }
+@@ -316,6 +317,8 @@
+     }
+     v->pk_inc = (uint32_t)(gx_inc(g->z, g->note) * gx_ratio(c));
  }
 +#include "trumpet-data.h"
 +static const int trumpet_roots[6] = {58, 60, 68, 74, 77, 81};
  static void lead_note_on(jb_t *e, int note, int vel, int wait, int len_samples, int bpt_q8, int dur_ticks) {
      if (note < 0) note = 0; if (note > 127) note = 127;
      if (lead_sound == 2 && PKS.ok[PK_GLEAD]) {             /* the melody guitar: its own pack, an octave under the page
-@@ -270,8 +273,9 @@
+@@ -355,8 +358,9 @@
              return;
          }
      }
@@ -40,7 +40,7 @@
          int32_t keep = e->lvl[li];
          e->lvl[li] = (lead_level * 40960) >> 15;
          int sn = e->strum_n; e->strum_n = 0;
-@@ -315,13 +319,21 @@
+@@ -400,13 +404,21 @@
      }
      static int rr;
      lvoice_t *v = &LV[0];                                  /* horn: monophonic, the newest note takes the voice (legato) */
@@ -63,7 +63,7 @@
      v->f = FREQ[note];
      v->on = 1;
  }
-@@ -359,7 +371,18 @@
+@@ -444,7 +456,18 @@
              if (v->wait > 0) { v->wait--; continue; }
              float target = v->rel ? 0.0f : 1.0f;
              float s;
@@ -83,7 +83,7 @@
                  if (v->age == 0) v->env = 1.0f;
                  v->env *= v->rel ? 0.99965f : 0.99996f;
                  float mod = fsin(v->ph2) * 1.2f * v->env;
-@@ -508,6 +531,23 @@
+@@ -593,6 +616,23 @@
      return 1;
  }
  

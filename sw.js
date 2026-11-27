@@ -1,7 +1,7 @@
 // Service worker: the app, the song library and the instruments are kept on the device, so Jazz Play-Along opens
 // from the home screen and plays without a connection. The book PDFs (the "Original page" view) are large and are
 // not kept: that view needs a connection.
-const VERSION = 'play-along-v5';
+const VERSION = 'play-along-v6';
 const SHELL = ['./', 'index.html', 'player.js', 'notation.js', 'midi.js', 'songform.js', 'studio.css', 'app/player.css', 'manifest.webmanifest',
   'icons/icon-192.png', 'songs.json', 'books.json', 'leads/462jazz.json', 'leads/jazzfake.json', 'leads/realbook.json', 'engine/worklet.js', 'engine/jazzband.wasm',
   'engine/packs/jbdrums.jbp', 'engine/packs/jbbass.jbp', 'engine/packs/jbpiano.jbp', 'engine/packs/jbguitar.jbp', 'engine/packs/jblead.jbp', 'engine/packs/jbgtrlead.jbp'];

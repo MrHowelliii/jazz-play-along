@@ -25,7 +25,7 @@ const URL = process.env.SITE || 'http://127.0.0.1:8765/';
 
     // 1. the band downloads before anyone presses Play
     await page.waitForFunction(() => true); await page.waitForTimeout(1500);
-    assert.equal(loaded.size, 6, 'engine and five instruments preloaded: ' + [...loaded]);
+    assert.equal(loaded.size, 7, 'engine and six instruments preloaded: ' + [...loaded]);
 
     // 2. tempo from the quick row, remembered for this tune
     const base = +(await $('.in-tempo').inputValue());
