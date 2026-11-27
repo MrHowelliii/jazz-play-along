@@ -51,7 +51,7 @@ final class Library {
                                   lead: Array.from(p.lead), pick: Array.from(p.pick), form: p.form });
         }
         """)
-        for book in ["462jazz", "jazzfake"] {
+        for book in ["462jazz", "jazzfake", "djangofake"] {
             guard let u = bundle.url(forResource: book, withExtension: "json"),
                   let text = try? String(contentsOf: u, encoding: .utf8) else { continue }
             js.evaluateScript("addBook('\(book)', \(text));")

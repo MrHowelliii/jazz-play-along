@@ -12,5 +12,5 @@ cp -R "$up" "$here/build/upstream"
 (cd "$here/build/upstream" && patch -p1 -s < "$root/playback.patch")
 python3 "$root/trumpet-header.py" "$root/muted-trumpet.wav" > "$here/build/upstream/web/trumpet-data.h"
 for p in jbdrums jbbass jbpiano jbguitar jblead jbgtrlead; do cp "$cat/engine/packs/$p.jbp" "$here/build/Resources/"; done
-cp "$cat/leads/462jazz.json" "$cat/leads/jazzfake.json" "$cat/app/songform.js" "$here/build/Resources/"
+cp "$cat/leads/462jazz.json" "$cat/leads/jazzfake.json" "$cat/leads/djangofake.json" "$cat/app/songform.js" "$here/build/Resources/"
 echo "staged: $(ls "$here/build/Resources" | wc -l) resources"

@@ -625,7 +625,7 @@ async function init() {
       }
     }
     // songs read from the scanned books (homr notes, chords read by eye); the exact 462 chart of a tune wins
-    for (const file of ['leads/jazzfake.json', 'leads/realbook.json']) {
+    for (const file of ['leads/jazzfake.json', 'leads/realbook.json', 'leads/djangofake.json']) {
       const r = await fetch(file).catch(() => null);
       if (!r || !r.ok) continue;
       for (const L of await r.json()) {

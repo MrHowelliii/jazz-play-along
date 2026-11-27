@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: MrHowelliii/jazzbook
-          ref: 0bd5128807d03994b943e41f21e861f639ee1c7b
+          ref: 18c9dfe4f951633fb876a534f3aac0adc7438144
           path: catalog
       - run: bash build.sh
       - uses: actions/configure-pages@v5
